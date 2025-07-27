@@ -169,7 +169,9 @@ struct RelayManager: View {
                                     Spacer()
                                 }
                                 // GO FURTHER
-                                NavigationLink(destination: RelayItemDetailView(storedRelays: storedRelays, item: item)) {
+                                NavigationLink(destination: RelayItemDetailView(storedRelays: storedRelays, item: item, onDelete: {
+                                    storedRelays.deleteItem(item: item)
+                                })) {
                                     HStack{
                                         Text(item.address)
                                             .saturation(item.state == "plugged" ? 1 : 0)
@@ -280,88 +282,91 @@ struct RelayItemDetailView: View {
     @ObservedObject var storedRelays: StoredRelays
     @StateObject var item: RelayItem
     @State private var editItemAddress = ""
-    
+    var onDelete: () -> Void
     
     var body: some View {
-        Form {
-            HStack(alignment: .firstTextBaseline) {
-                NavigationLink(destination: RelaysView()) {
-                    Text("Admin")
-                    Spacer()
-                    HStack {
-                        AvatarView(size: 30)
-                        VStack(alignment: .leading){
-                            usernameView(username: "Fer", nip05: "nostr.ar", extended: false)
+        // Defensive UI: If the item is invalidated, show nothing
+        if item.isInvalidated {
+            VStack {
+                Text("This relay has been deleted.")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+        } else {
+            Form {
+                HStack(alignment: .firstTextBaseline) {
+                    NavigationLink(destination: RelaysView()) {
+                        Text("Admin")
+                        Spacer()
+                        HStack {
+                            AvatarView(size: 30)
+                            VStack(alignment: .leading){
+                                usernameView(username: "Fer", nip05: "nostr.ar", extended: false)
+                            }
                         }
                     }
                 }
-            }
-            TextField("Item address", text: $editItemAddress)
-            DisclosureGroup{
-                WrappingHStack(horizontalSpacing: 12) {
-                    
-                    ForEach(supportedNips, id: \.self) { nip in
+                TextField("Item address", text: $editItemAddress)
+                DisclosureGroup{
+                    WrappingHStack(horizontalSpacing: 12) {
                         
-                        Text(nip)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 2)
-                            .background(.thinMaterial)
-                            .foregroundColor(.primary)
-                            .cornerRadius(5)
-                            .font(.subheadline)
-                    }
-                }
-                
-            } label: {
-                Text("Supported NIPS")
-                
-            }
-            .transaction { transaction in
-                transaction.animation = .spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)
-            }
-            HStack{
-                Text("Version")
-                Spacer()
-                Text("v78-30b8c38")
-                    .lineLimit(1)
-                
-            }
-            
-            
-            Spacer()
-            
-            Button("Delete") {
-                storedRelays.deleteItem(item: item)
-                presentationMode.wrappedValue.dismiss()
-            }
-            .padding()
-        }
-        .onAppear {
-            editItemAddress = item.address
-        }
-        
-        .toolbar{
-            ToolbarItem(placement: .navigationBarTrailing) {
-                
-                Button{
-                    if editItemAddress.isEmpty {
-                        //Empty address
-                        editItemAddress = item.address
-                    } else {
-                        storedRelays.updateItem(item: item, address: editItemAddress, state: item.state)
-                        presentationMode.wrappedValue.dismiss()
+                        ForEach(supportedNips, id: \.self) { nip in
+                            
+                            Text(nip)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 2)
+                                .background(.thinMaterial)
+                                .foregroundColor(.primary)
+                                .cornerRadius(5)
+                                .font(.subheadline)
+                        }
                     }
                     
                 } label: {
-                    Text("Save")
+                    Text("Supported NIPS")
+                    
+                }
+                .transaction { transaction in
+                    transaction.animation = .spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)
+                }
+                HStack{
+                    Text("Version")
+                    Spacer()
+                    Text("v78-30b8c38")
+                        .lineLimit(1)
+                    
                 }
                 
+                
+                Spacer()
+                
+                Button("Delete") {
+                    presentationMode.wrappedValue.dismiss()
+                    onDelete()
+                }
+                .padding()
             }
-            ToolbarItem(placement: .principal) {
-                Text(item.address)
+            .onAppear {
+                editItemAddress = item.address
+            }
+            .toolbar{
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button{
+                        if editItemAddress.isEmpty {
+                            editItemAddress = item.address
+                        } else {
+                            storedRelays.updateItem(item: item, address: editItemAddress, state: item.state)
+                            presentationMode.wrappedValue.dismiss()
+                        }
+                    } label: {
+                        Text("Save")
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    Text(item.address)
+                }
             }
         }
-        
     }
 }
 
