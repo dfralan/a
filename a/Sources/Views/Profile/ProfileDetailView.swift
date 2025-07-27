@@ -121,7 +121,7 @@ struct ProfileDetailView: View {
                     HStack{
                         Button(action: {
                             if contactList.following.count > 0 {
-                                self.navigation.homePath.append(Navigation.NavFollowing(userProfile: userProfile))
+                                self.navigation.safeNavigate(Navigation.NavFollowing(userProfile: userProfile))
                             }
                         }) {
                             Text("Following")
@@ -133,7 +133,7 @@ struct ProfileDetailView: View {
                         
                         Button(action: {
                             if contactList.followedBy.count > 0 {
-                                self.navigation.homePath.append(Navigation.NavFollowers(userProfile: userProfile))
+                                self.navigation.safeNavigate(Navigation.NavFollowers(userProfile: userProfile))
                             }
                         }) {
                             Text("Followers")
@@ -180,6 +180,12 @@ struct ProfileDetailView: View {
             nostrData.fetchContactList(forPublicKey: userProfile.publicKey)
         }
         .navigationTitle("")
+        .onAppear {
+            print("📱 ProfileDetailView appeared for user: \(userProfile.publicKey.prefix(8))")
+        }
+        .onDisappear {
+            print("📱 ProfileDetailView disappeared")
+        }
         
         .toolbar {
             //UserProfileNavigationTitle(userProfile: userProfile)
@@ -226,7 +232,7 @@ struct ProfileDetailView: View {
             //QR CODE
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    self.navigation.homePath.append(Navigation.NavQR(userProfile: userProfile))
+                    self.navigation.safeNavigate(Navigation.NavQR(userProfile: userProfile))
                 }) {
                     Image(systemName: "qrcode")
                 }

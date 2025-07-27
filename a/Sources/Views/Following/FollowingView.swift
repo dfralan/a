@@ -7,6 +7,7 @@ import SDWebImageSwiftUI
 struct FollowingView: View {
     
     @EnvironmentObject var nostrData: NostrData
+    @EnvironmentObject var navigation: Navigation
     @ObservedRealmObject var userProfile: RUserProfile
     @ObservedResults(RContactList.self) var contactLists
 
@@ -24,10 +25,13 @@ struct FollowingView: View {
                 
                 ForEach(following) { userProfile in
                     
-                    NavigationLink(value: Navigation.NavUserProfile(userProfile: userProfile)) {
+                    Button(action: {
+                        navigation.safeNavigate(Navigation.NavUserProfile(userProfile: userProfile))
+                    }) {
                         UserProfileListViewRow(userProfile: userProfile)
                     }
                     .id(userProfile.publicKey)
+                    .buttonStyle(.plain)
                 }
                 
             }
@@ -39,6 +43,12 @@ struct FollowingView: View {
             ToolbarItem(placement: .principal) {
                 UserProfileNavigationTitle(userProfile: userProfile)
             }
+        }
+        .onAppear {
+            print("📱 FollowingView appeared for user: \(userProfile.publicKey.prefix(8))")
+        }
+        .onDisappear {
+            print("📱 FollowingView disappeared")
         }
     }
 }

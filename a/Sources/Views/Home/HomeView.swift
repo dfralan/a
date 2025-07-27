@@ -62,8 +62,13 @@ struct HomeView: View {
                         
                         .onAppear {
                             viewIsVisible = true
-                            if !navigation.homePath.isEmpty {
-                                navigation.homePath.removeLast() /// Removes the last element from the navigation's homePath if it's not empty
+                            // Only clear navigation if we're coming from a deep navigation stack
+                            // Don't clear if we're just returning to home normally
+                            if navigation.homePath.count > 3 {
+                                print("🧹 HomeView: Clearing deep navigation stack on appear")
+                                navigation.clearNavigation()
+                            } else if navigation.homePath.count > 0 {
+                                print("📱 HomeView: Returning to home with \(navigation.homePath.count) items in stack")
                             } else {
                                 NostrData.shared.updateLastSeenDate() /// Updates the last seen date using NostrData's shared instance
                             }
@@ -73,7 +78,8 @@ struct HomeView: View {
                         /// Home tapped listener
                         .onChange(of: toolbarState.homeTapped) { value in
                             if !navigation.homePath.isEmpty {
-                                navigation.homePath.removeLast() /// Removes the last element from the navigation's homePath if it's not empty
+                                print("🔄 HomeView: Gentle reset on home tap")
+                                navigation.gentleReset()
                                 NostrData.shared.updateLastSeenDate() /// Updates the last seen date using NostrData's shared instance
                             } else {
                                 NostrData.shared.updateLastSeenDate() /// Updates the last seen date using NostrData's shared instance
@@ -91,6 +97,32 @@ struct HomeView: View {
                 
                 floatingToolbarView(toolbarState: toolbarState)
                     .padding()
+                
+                // MARK: - Navigation Debug Overlay (for development)
+                #if DEBUG
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Nav Stack: \(navigation.homePath.count)")
+                                .font(.caption2)
+                                .padding(4)
+                                .background(.ultraThinMaterial)
+                                .cornerRadius(4)
+                            
+                            Button("Clear Nav") {
+                                navigation.clearNavigation()
+                            }
+                            .font(.caption2)
+                            .padding(4)
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(4)
+                        }
+                        .padding(.trailing, 8)
+                    }
+                }
+                #endif
             }
             
             // MARK: - New Events Floating Pill
@@ -126,22 +158,37 @@ struct HomeView: View {
             
             .navigationDestination(for: Navigation.NavUserProfile.self) { nav in
                 ProfileDetailView(userProfile: nav.userProfile) /// Profile Detail View
+                    .onAppear {
+                        print("🎯 Navigation: ProfileDetailView appeared for \(nav.userProfile.publicKey.prefix(8))")
+                    }
             }
             
             .navigationDestination(for: Navigation.NavFollowing.self) { nav in
                 FollowingView(userProfile: nav.userProfile) /// Following List View
+                    .onAppear {
+                        print("🎯 Navigation: FollowingView appeared for \(nav.userProfile.publicKey.prefix(8))")
+                    }
             }
             
             .navigationDestination(for: Navigation.NavFollowers.self) { nav in
                 FollowersView(userProfile: nav.userProfile) /// Followers List View
+                    .onAppear {
+                        print("🎯 Navigation: FollowersView appeared for \(nav.userProfile.publicKey.prefix(8))")
+                    }
             }
             
             .navigationDestination(for: Navigation.NavQR.self) { nav in
                 QRView(userProfile: nav.userProfile) /// QR View
+                    .onAppear {
+                        print("🎯 Navigation: QRView appeared for \(nav.userProfile.publicKey.prefix(8))")
+                    }
             }
             
             .navigationDestination(for: Navigation.NavEditProfile.self) { nav in
                 EditProfileView(userProfile: nav.userProfile) /// Edit Profile View
+                    .onAppear {
+                        print("🎯 Navigation: EditProfileView appeared for \(nav.userProfile.publicKey.prefix(8))")
+                    }
             }
             
             .toolbar {
@@ -194,6 +241,17 @@ struct HomeView: View {
                         WalletListView()
                     } label: {
                         Image(systemName: "bolt")
+                    }
+                }
+                
+                /// Navigation Test Button (for debugging)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        print("🧪 Testing navigation with sample profile")
+                        let testProfile = RUserProfile.createEmpty(withPublicKey: "test123")
+                        navigation.safeNavigate(Navigation.NavUserProfile(userProfile: testProfile))
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
                     }
                 }
             }

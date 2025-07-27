@@ -35,6 +35,12 @@ struct RootView: View {
         .saturation(coordinator.saturationColor)
         .font(.system(size: coordinator.selectedFontSize.fontSizeValue))
         .dynamicTypeSize(...DynamicTypeSize.large)
+        .onAppear {
+            print("🏠 RootView appeared")
+        }
+        .onChange(of: navigation.homePath.count) { count in
+            print("📊 Navigation stack depth: \(count)")
+        }
     }
 }
 

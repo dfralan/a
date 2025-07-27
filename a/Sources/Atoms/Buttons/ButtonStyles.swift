@@ -3,7 +3,9 @@
 import SwiftUI
 
 struct aButton: View {
+    
     @State var content:String
+    
     var body: some View {
         ZStack{
             Button(action: {

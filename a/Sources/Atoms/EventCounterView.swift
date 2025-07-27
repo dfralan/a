@@ -26,11 +26,12 @@ struct NewPostsToastView: View {
                 
                 // 3 LAST AVATARS PREVIEW
                 HStack(spacing: -8) {
-                    ForEach(avatarUrls, id: \.self.absoluteString) { url in
-                        ZStack{
-                            AvatarView(url: url, size: 25)
+                    ForEach(Array(avatarUrls.enumerated()), id: \.offset) { index, element in
+                        ZStack {
+                            AvatarView(url: element, size: 25)
                         }
                     }
+
                 }
                 
                 // NEW NOTES COUNTER WITH ARROW

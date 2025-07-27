@@ -89,7 +89,7 @@ struct EventView: View {
                 // NAVIGATOR TO PROFILE PRIMARY VIEW ON TAP GESTURE
                 .onTapGesture {
                     if let userProfile = self.textNote.userProfile {
-                        self.navigation.homePath.append(Navigation.NavUserProfile(userProfile: userProfile))
+                        self.navigation.safeNavigate(Navigation.NavUserProfile(userProfile: userProfile))
                     }
                 }
                 

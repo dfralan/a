@@ -89,16 +89,3 @@ func validate_nip05(pubkey: String, nip05_str: String) async -> NIP05? {
     
     return nip05
 }
-
-
-struct nip05: View {
-    var body: some View {
-        Text(/*@START_MENU_TOKEN@*/"Hello, World!"/*@END_MENU_TOKEN@*/)
-    }
-}
-
-struct nip05_Previews: PreviewProvider {
-    static var previews: some View {
-        nip05()
-    }
-}

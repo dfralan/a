@@ -107,7 +107,11 @@ struct ReactionsBarView: View {
 
 struct EmojiCounterView_Previews: PreviewProvider {
     static var previews: some View {
-        ReactionsBarView(reactionsBarState: ReactionsBarState())
+        let state = ReactionsBarState()
+        state.eventReactions = ["👍", "❤️", "😂", "👍", "🔥", "❤️", "😂", "😂"]
+        return ReactionsBarView(reactionsBarState: state)
+            .previewLayout(.sizeThatFits)
+            .padding()
     }
 }
 
