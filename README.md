@@ -76,8 +76,4 @@ If you have any questions or feedback, feel free to reach out to me:
 
 * GitHub: [@dfralan](https://github.com/dfralan)
 
-Thank you for checking out this Nostr Swift Client!
-
----
-
-¿Querés que te prepare algo más formal o con secciones adicionales?
+Feel free to try it!
