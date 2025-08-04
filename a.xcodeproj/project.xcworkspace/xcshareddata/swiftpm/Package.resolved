@@ -1,5 +1,5 @@
 {
-  "originHash" : "44a74419c4004cd3c7cfa16de72dbefad2a04c2be6dbf24cff74e64025b8c8f2",
+  "originHash" : "cd2837449ae4c4964b620884c205462933105b5a9d27ca042310b7742921d840",
   "pins" : [
     {
       "identity" : "bc-lifehash",
@@ -15,26 +15,35 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/evgenyneu/keychain-swift/",
       "state" : {
-        "revision" : "d108a1fa6189e661f91560548ef48651ed8d93b9",
-        "version" : "20.0.0"
+        "revision" : "5e1b02b6a9dac2a759a1d5dbc175c86bd192a608",
+        "version" : "24.0.0"
       }
     },
     {
       "identity" : "kingfisher",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/onevcat/Kingfisher",
+      "location" : "https://github.com/onevcat/Kingfisher.git",
       "state" : {
-        "revision" : "2ef543ee21d63734e1c004ad6c870255e8716c50",
-        "version" : "7.12.0"
+        "revision" : "2015fda791daa72c8058619545a593bf8c1dd59f",
+        "version" : "8.5.0"
       }
     },
     {
       "identity" : "lifehash",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/BlockchainCommons/LifeHash",
+      "location" : "https://github.com/BlockchainCommons/LifeHash.git",
       "state" : {
-        "revision" : "fb842d1378b960be6750267e98ae6ce8f287054d",
-        "version" : "6.3.2"
+        "revision" : "c8b1920e315f203481063173525883141822a13c",
+        "version" : "8.0.1"
+      }
+    },
+    {
+      "identity" : "lrucache",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nicklockwood/LRUCache.git",
+      "state" : {
+        "revision" : "d825046fb798ef56c8d0623fdbd2d5ca95e37ca4",
+        "version" : "1.1.1"
       }
     },
     {
@@ -87,8 +96,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImageSwiftUI.git",
       "state" : {
-        "revision" : "53573d6dd017e354c0e7d8f1c86b77ef1383c996",
-        "version" : "2.2.7"
+        "revision" : "451c6dfd5ecec2cf626d1d9ca81c2d4a60355172",
+        "version" : "3.1.3"
       }
     },
     {

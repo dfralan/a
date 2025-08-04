@@ -55,11 +55,13 @@ public class LifeHashView: UIImageView {
 
         guard let hashInput = hashInput else { return }
 
-        self.cancellable = LifeHashGenerator.getCachedImage(hashInput, version: version).receive(on: DispatchQueue.main).sink { image in
-            guard hashInput == self.hashInput else { return }
-            self.set(image: image)
-        }
+        let fingerprint = Fingerprint(digest: hashInput)
+        let image = LifeHashGenerator.generateSync(fingerprint: fingerprint, version: version, moduleSize: 1)
+
+        self.set(image: image)
     }
+
+
 }
 
 struct UIKitLifeHashView: UIViewRepresentable {

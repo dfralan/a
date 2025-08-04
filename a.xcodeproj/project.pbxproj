@@ -12,22 +12,23 @@
 		141E6B9C2A1815830082DA2A /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6B9B2A1815830082DA2A /* WelcomeView.swift */; };
 		141E6BA22A181B9C0082DA2A /* KeyGen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6BA12A181B9C0082DA2A /* KeyGen.swift */; };
 		141E6BA42A181C670082DA2A /* SecuredKeyManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6BA32A181C670082DA2A /* SecuredKeyManagerView.swift */; };
-		142FF8FB2A053D6C003304A9 /* LifeHash in Frameworks */ = {isa = PBXBuildFile; productRef = 142FF8FA2A053D6C003304A9 /* LifeHash */; };
 		142FF8FD2A053F08003304A9 /* lifeHashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142FF8FC2A053F08003304A9 /* lifeHashView.swift */; };
 		142FF8FF2A05DAD1003304A9 /* Squircle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142FF8FE2A05DAD1003304A9 /* Squircle.swift */; };
+		14C426112E403FF800501F79 /* KeychainSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426102E403FF800501F79 /* KeychainSwift */; };
+		14C426142E40400C00501F79 /* NostrKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426132E40400C00501F79 /* NostrKit */; };
+		14C426172E40402000501F79 /* SDWebImageSVGCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426162E40402000501F79 /* SDWebImageSVGCoder */; };
+		14C4261A2E40404300501F79 /* SimpleToast in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426192E40404300501F79 /* SimpleToast */; };
+		14C4261D2E40405300501F79 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 14C4261C2E40405300501F79 /* Kingfisher */; };
+		14C426202E4040B000501F79 /* LifeHash in Frameworks */ = {isa = PBXBuildFile; productRef = 14C4261F2E4040B000501F79 /* LifeHash */; };
+		14C426252E40416E00501F79 /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426242E40416E00501F79 /* RealmSwift */; };
+		14C426282E40420E00501F79 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426272E40420E00501F79 /* SDWebImageSwiftUI */; };
 		14CDB0EA2A03F3A6003D6787 /* aApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB0E92A03F3A6003D6787 /* aApp.swift */; };
 		14CDB0EE2A03F3A8003D6787 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14CDB0ED2A03F3A8003D6787 /* Assets.xcassets */; };
 		14CDB0F22A03F3A9003D6787 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14CDB0F12A03F3A9003D6787 /* Preview Assets.xcassets */; };
-		14CDB0FA2A03F3FB003D6787 /* KeychainSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0F92A03F3FB003D6787 /* KeychainSwift */; };
-		14CDB0FD2A03F40E003D6787 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0FC2A03F40E003D6787 /* Kingfisher */; };
-		14CDB1002A03F42F003D6787 /* NostrKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0FF2A03F42F003D6787 /* NostrKit */; };
-		14CDB1032A03F553003D6787 /* SimpleToast in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB1022A03F553003D6787 /* SimpleToast */; };
 		14CDB10A2A0404CD003D6787 /* bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1092A0404CD003D6787 /* bech32.swift */; };
 		14CDB10C2A04059F003D6787 /* ProofOfWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB10B2A04059F003D6787 /* ProofOfWork.swift */; };
 		14CDB1182A045B41003D6787 /* Keys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1172A045B41003D6787 /* Keys.swift */; };
 		14CDB11B2A046138003D6787 /* KeyGenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB11A2A046138003D6787 /* KeyGenView.swift */; };
-		14CDB11E2A04624C003D6787 /* SDWebImageSVGCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */; };
-		14CDB1212A046274003D6787 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB1202A046274003D6787 /* SDWebImageSwiftUI */; };
 		14CDB1DE2A046377003D6787 /* ReactionsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1262A046375003D6787 /* ReactionsBar.swift */; };
 		14CDB1DF2A046377003D6787 /* ReactionsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1272A046375003D6787 /* ReactionsBarView.swift */; };
 		14CDB1E12A046377003D6787 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB12A2A046375003D6787 /* ButtonStyles.swift */; };
@@ -247,8 +248,6 @@
 		14FCF8C52A0BBFF100936929 /* goat.png in Resources */ = {isa = PBXBuildFile; fileRef = 14FCF87C2A0BBFF000936929 /* goat.png */; };
 		14FCF8C62A0BBFF100936929 /* muttonchops.png in Resources */ = {isa = PBXBuildFile; fileRef = 14FCF87D2A0BBFF000936929 /* muttonchops.png */; };
 		14FCF8CB2A0D40C600936929 /* QR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FCF8CA2A0D40C600936929 /* QR.swift */; };
-		CBDF9C922E2ECCDC001CDC0A /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CBDF9C912E2ECCDC001CDC0A /* RealmSwift */; settings = {ATTRIBUTES = (Required, ); }; };
-		CBDF9C942E2ED05F001CDC0A /* RealmSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = CBDF9C912E2ECCDC001CDC0A /* RealmSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -258,7 +257,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				CBDF9C942E2ED05F001CDC0A /* RealmSwift in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -508,14 +506,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14CDB1032A03F553003D6787 /* SimpleToast in Frameworks */,
-				14CDB1002A03F42F003D6787 /* NostrKit in Frameworks */,
-				14CDB11E2A04624C003D6787 /* SDWebImageSVGCoder in Frameworks */,
-				CBDF9C922E2ECCDC001CDC0A /* RealmSwift in Frameworks */,
-				14CDB1212A046274003D6787 /* SDWebImageSwiftUI in Frameworks */,
-				14CDB0FD2A03F40E003D6787 /* Kingfisher in Frameworks */,
-				142FF8FB2A053D6C003304A9 /* LifeHash in Frameworks */,
-				14CDB0FA2A03F3FB003D6787 /* KeychainSwift in Frameworks */,
+				14C426252E40416E00501F79 /* RealmSwift in Frameworks */,
+				14C426202E4040B000501F79 /* LifeHash in Frameworks */,
+				14C4261A2E40404300501F79 /* SimpleToast in Frameworks */,
+				14C426172E40402000501F79 /* SDWebImageSVGCoder in Frameworks */,
+				14C426282E40420E00501F79 /* SDWebImageSwiftUI in Frameworks */,
+				14C426142E40400C00501F79 /* NostrKit in Frameworks */,
+				14C426112E403FF800501F79 /* KeychainSwift in Frameworks */,
+				14C4261D2E40405300501F79 /* Kingfisher in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1205,14 +1203,14 @@
 			);
 			name = a;
 			packageProductDependencies = (
-				14CDB0F92A03F3FB003D6787 /* KeychainSwift */,
-				14CDB0FC2A03F40E003D6787 /* Kingfisher */,
-				14CDB0FF2A03F42F003D6787 /* NostrKit */,
-				14CDB1022A03F553003D6787 /* SimpleToast */,
-				14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */,
-				14CDB1202A046274003D6787 /* SDWebImageSwiftUI */,
-				142FF8FA2A053D6C003304A9 /* LifeHash */,
-				CBDF9C912E2ECCDC001CDC0A /* RealmSwift */,
+				14C426102E403FF800501F79 /* KeychainSwift */,
+				14C426132E40400C00501F79 /* NostrKit */,
+				14C426162E40402000501F79 /* SDWebImageSVGCoder */,
+				14C426192E40404300501F79 /* SimpleToast */,
+				14C4261C2E40405300501F79 /* Kingfisher */,
+				14C4261F2E4040B000501F79 /* LifeHash */,
+				14C426242E40416E00501F79 /* RealmSwift */,
+				14C426272E40420E00501F79 /* SDWebImageSwiftUI */,
 			);
 			productName = a;
 			productReference = 14CDB0E62A03F3A6003D6787 /* a.app */;
@@ -1244,14 +1242,14 @@
 			);
 			mainGroup = 14CDB0DD2A03F3A6003D6787;
 			packageReferences = (
-				14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */,
-				14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */,
-				14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */,
-				14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */,
-				14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */,
-				14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
-				142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */,
-				CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */,
+				14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */,
+				14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */,
+				14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */,
+				14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */,
+				14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */,
+				14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */,
+				14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */,
+				14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
 			);
 			productRefGroup = 14CDB0E72A03F3A6003D6787 /* Products */;
 			projectDirPath = "";
@@ -1651,7 +1649,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -1694,7 +1692,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -1734,31 +1732,15 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/BlockchainCommons/LifeHash";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 6.0.0;
-			};
-		};
-		14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */ = {
+		14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/evgenyneu/keychain-swift/";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 20.0.0;
+				minimumVersion = 24.0.0;
 			};
 		};
-		14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/onevcat/Kingfisher";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 7.0.0;
-			};
-		};
-		14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */ = {
+		14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/cnixbtc/NostrKit.git";
 			requirement = {
@@ -1766,80 +1748,96 @@
 				kind = branch;
 			};
 		};
-		14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sanzaru/SimpleToast.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.7.1;
-			};
-		};
-		14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */ = {
+		14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/SDWebImage/SDWebImageSVGCoder.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
+				minimumVersion = 1.8.0;
 			};
 		};
-		14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */ = {
+		14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sanzaru/SimpleToast.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.11.0;
+			};
+		};
+		14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.5.0;
+			};
+		};
+		14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/BlockchainCommons/LifeHash.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.1;
+			};
+		};
+		14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/realm/realm-swift.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/SDWebImage/SDWebImageSwiftUI.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.0;
-			};
-		};
-		CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/realm/realm-swift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
+				minimumVersion = 3.1.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		142FF8FA2A053D6C003304A9 /* LifeHash */ = {
+		14C426102E403FF800501F79 /* KeychainSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */;
-			productName = LifeHash;
-		};
-		14CDB0F92A03F3FB003D6787 /* KeychainSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */;
+			package = 14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */;
 			productName = KeychainSwift;
 		};
-		14CDB0FC2A03F40E003D6787 /* Kingfisher */ = {
+		14C426132E40400C00501F79 /* NostrKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */;
-			productName = Kingfisher;
-		};
-		14CDB0FF2A03F42F003D6787 /* NostrKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */;
+			package = 14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */;
 			productName = NostrKit;
 		};
-		14CDB1022A03F553003D6787 /* SimpleToast */ = {
+		14C426162E40402000501F79 /* SDWebImageSVGCoder */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */;
-			productName = SimpleToast;
-		};
-		14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */;
+			package = 14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */;
 			productName = SDWebImageSVGCoder;
 		};
-		14CDB1202A046274003D6787 /* SDWebImageSwiftUI */ = {
+		14C426192E40404300501F79 /* SimpleToast */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
-			productName = SDWebImageSwiftUI;
+			package = 14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */;
+			productName = SimpleToast;
 		};
-		CBDF9C912E2ECCDC001CDC0A /* RealmSwift */ = {
+		14C4261C2E40405300501F79 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */;
+			package = 14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
+		14C4261F2E4040B000501F79 /* LifeHash */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */;
+			productName = LifeHash;
+		};
+		14C426242E40416E00501F79 /* RealmSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */;
 			productName = RealmSwift;
+		};
+		14C426272E40420E00501F79 /* SDWebImageSwiftUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
+			productName = SDWebImageSwiftUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

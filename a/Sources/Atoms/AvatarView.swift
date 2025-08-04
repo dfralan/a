@@ -57,14 +57,13 @@ struct AvatarView: View {
                     }
                     
                 case "gif", "webp", "svg", "":
-                    AnimatedImage(url: url)
-                        .placeholder {
-                            ProgressView()
-                        }
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .clipShape(Circle())
-                        .frame(width: size, height: size)
+                    AnimatedImage(url: url, isAnimating: .constant(true)) {
+                        ProgressView()
+                    }
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .clipShape(Circle())
+                    .frame(width: size, height: size)
                 default:
                     AsyncImage(url: url) { phase in
                         if let image = phase.image {

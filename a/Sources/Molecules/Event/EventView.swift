@@ -128,10 +128,9 @@ struct EventView: View {
                                 
                                 // ANIMATED IMAGE CASE
                             case "gif", "webp", "svg":
-                                AnimatedImage(url: imageUrl)
-                                    .placeholder {
-                                        ProgressView()
-                                    }
+                                AnimatedImage(url: imageUrl, isAnimating: .constant(true)) {
+                                    ProgressView()
+                                }
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
                                     .scaledToFit()
@@ -165,8 +164,9 @@ struct EventView: View {
                                             }
                                             .padding()
                                             .foregroundColor(.primary)
-                                            AnimatedImage(url: imageUrl)
-                                                .placeholder{ProgressView()}
+                                            AnimatedImage(url: imageUrl, isAnimating: .constant(true)) {
+                                                ProgressView()
+                                            }
                                                 .resizable()
                                                 .aspectRatio(contentMode: .fit)
                                                 .edgesIgnoringSafeArea(.all)
