@@ -8,13 +8,13 @@
 import SwiftUI
 
 struct CollaborateView: View {
-    var body: some View {
-        Text(/*@START_MENU_TOKEN@*/"Hello, World!"/*@END_MENU_TOKEN@*/)
-    }
+  var body: some View {
+    Text( /*@START_MENU_TOKEN@*/"Hello, World!" /*@END_MENU_TOKEN@*/)
+  }
 }
 
 struct CollaborateView_Previews: PreviewProvider {
-    static var previews: some View {
-        CollaborateView()
-    }
+  static var previews: some View {
+    CollaborateView()
+  }
 }

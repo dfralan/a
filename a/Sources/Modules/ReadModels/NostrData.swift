@@ -24,64 +24,72 @@ import SwiftUI
 
 class NostrData: ObservableObject {
 
-    static let lastSeenDefaultsKey = "lastSeenDefaultsKey"
-    
-    @Published var lastSeenDate = Date(timeIntervalSince1970: Double(UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
-    
-    @ObservedObject var storedRelays = StoredRelays()
-    
-    var nostrRelays: [NostrRelay] = []
-    
-    private let realm: Realm
-    static let shared = NostrData()
-    
-    private init() {
-        if UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey) == 0 {
-            UserDefaults.standard.setValue(Timestamp(date: Date.now).timestamp, forKey: NostrData.lastSeenDefaultsKey)
-            self.lastSeenDate = Date(timeIntervalSince1970: Double(UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
-        }
-        let config = Realm.Configuration(schemaVersion: 7)
-        Realm.Configuration.defaultConfiguration = config
-        self.realm = try! Realm()
-        self.realm.autorefresh = true
+  static let lastSeenDefaultsKey = "lastSeenDefaultsKey"
+
+  @Published var lastSeenDate = Date(
+    timeIntervalSince1970: Double(
+      UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
+
+  @ObservedObject var storedRelays = StoredRelays()
+
+  var nostrRelays: [NostrRelay] = []
+
+  private let realm: Realm
+  static let shared = NostrData()
+
+  private init() {
+    if UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey) == 0 {
+      UserDefaults.standard.setValue(
+        Timestamp(date: Date.now).timestamp, forKey: NostrData.lastSeenDefaultsKey)
+      self.lastSeenDate = Date(
+        timeIntervalSince1970: Double(
+          UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
     }
-    
-    func initPreview() -> NostrData {
-//        userProfiles = [UserProfile.preview]
-//        textNotes = [TextNote.preview]
-        return .shared
+    let config = Realm.Configuration(schemaVersion: 7)
+    Realm.Configuration.defaultConfiguration = config
+    self.realm = try! Realm()
+    self.realm.autorefresh = true
+  }
+
+  func initPreview() -> NostrData {
+    //        userProfiles = [UserProfile.preview]
+    //        textNotes = [TextNote.preview]
+    return .shared
+  }
+
+  func bootstrapRelays(relay: String) {
+    self.nostrRelays.append(NostrRelay(urlString: relay, realm: realm))
+    for relay in nostrRelays {
+      relay.connect()
     }
-    
-    func bootstrapRelays(relay: String) {
-        self.nostrRelays.append(NostrRelay(urlString: relay, realm: realm))
-        for relay in nostrRelays {
-            relay.connect()
-        }
+  }
+
+  func disconnect() {
+    for relay in nostrRelays {
+      relay.unsubscribe()
+      relay.disconnect()
     }
-    
-    func disconnect() {
-        for relay in nostrRelays {
-            relay.unsubscribe()
-            relay.disconnect()
-        }
+  }
+
+  func reconnect() {
+    for relay in nostrRelays {
+      if !relay.connected {
+        relay.connect()
+      }
     }
-    
-    func reconnect() {
-        for relay in nostrRelays {
-            if !relay.connected {
-                relay.connect()
-            }
-        }
+  }
+
+  func fetchContactList(forPublicKey publicKey: String) {
+    for relay in nostrRelays {
+      relay.subscribeContactList(forPublicKey: publicKey)
     }
-    
-    func fetchContactList(forPublicKey publicKey: String) {
-        for relay in nostrRelays {
-            relay.subscribeContactList(forPublicKey: publicKey)
-        }
-    }
-    
-    func updateLastSeenDate() {
-        UserDefaults.standard.setValue(Timestamp(date: Date.now).timestamp, forKey: NostrData.lastSeenDefaultsKey)
-        self.lastSeenDate = Date(timeIntervalSince1970: Double(UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
-    }
+  }
+
+  func updateLastSeenDate() {
+    UserDefaults.standard.setValue(
+      Timestamp(date: Date.now).timestamp, forKey: NostrData.lastSeenDefaultsKey)
+    self.lastSeenDate = Date(
+      timeIntervalSince1970: Double(
+        UserDefaults.standard.integer(forKey: NostrData.lastSeenDefaultsKey)))
+  }
 }

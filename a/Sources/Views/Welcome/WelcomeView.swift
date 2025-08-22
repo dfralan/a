@@ -1,12 +1,11 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    
-    
-    @State private var currentSloganIndex = 0
-    @State private var showSlogan = false
-    
-    let slogans = [
+
+  @State private var currentSloganIndex = 0
+  @State private var showSlogan = false
+
+  let slogans = [
     "No drama, no hassle, where connections tassel.",
     "No stress, no hassle, embrace the digital castle.",
     "No tension, no hassle, a community that'll make your worries wrastle.",
@@ -26,58 +25,57 @@ struct WelcomeView: View {
     "No filters, no hassle, where connections bloom and nestle.",
     "No exclusion, no hassle, a community where diversity will nestle.",
     "No fear, no hassle, in this app, we'll help you unbuckle.",
-    "No bounds, no hassle, where dreams and aspirations will hustle."
-    ]
-    
-    var body: some View {
-            ZStack {
-                Image("portal9")
-                    .resizable()
-                    .scaledToFill()
-                    .edgesIgnoringSafeArea(.all)
-                
-                VStack {
-                    Spacer()
-                    
-                    Text(slogans[currentSloganIndex])
-                        .font(.title)
-                        .bold()
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .frame(width: 350)
-                        .opacity(showSlogan ? 1 : 0) // Apply opacity to the container view
-                    
-                    
-                    Button(action: {
-                        // Action for Generate Key button
-                    }) {
-                        Text("Generate Key")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.primary)
-                    .foregroundColor(.white)
-                    
-                    Button(action: {
-                        // Action for Generate Key button
-                    }) {
-                        Text("Log Key")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.white)
-                    
-                    Spacer()
-                    
-                    Text("Back to Land")
-                        .foregroundColor(.white)
-                        .font(.headline)
-                }
-                .shadow(radius: 5)
-            }
-        }
-    }
+    "No bounds, no hassle, where dreams and aspirations will hustle.",
+  ]
 
-    struct WelcomeView_Previews: PreviewProvider {
-        static var previews: some View {
-            WelcomeView()
+  var body: some View {
+    ZStack {
+      Image("portal9")
+        .resizable()
+        .scaledToFill()
+        .edgesIgnoringSafeArea(.all)
+
+      VStack {
+        Spacer()
+
+        Text(slogans[currentSloganIndex])
+          .font(.title)
+          .bold()
+          .multilineTextAlignment(.center)
+          .padding()
+          .frame(width: 350)
+          .opacity(showSlogan ? 1 : 0)  // Apply opacity to the container view
+
+        Button(action: {
+          // Action for Generate Key button
+        }) {
+          Text("Generate Key")
         }
+        .buttonStyle(.bordered)
+        .tint(.primary)
+        .foregroundColor(.white)
+
+        Button(action: {
+          // Action for Generate Key button
+        }) {
+          Text("Log Key")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.white)
+
+        Spacer()
+
+        Text("Back to Land")
+          .foregroundColor(.white)
+          .font(.headline)
+      }
+      .shadow(radius: 5)
     }
+  }
+}
+
+struct WelcomeView_Previews: PreviewProvider {
+  static var previews: some View {
+    WelcomeView()
+  }
+}

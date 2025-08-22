@@ -12,23 +12,22 @@
 		141E6B9C2A1815830082DA2A /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6B9B2A1815830082DA2A /* WelcomeView.swift */; };
 		141E6BA22A181B9C0082DA2A /* KeyGen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6BA12A181B9C0082DA2A /* KeyGen.swift */; };
 		141E6BA42A181C670082DA2A /* SecuredKeyManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 141E6BA32A181C670082DA2A /* SecuredKeyManagerView.swift */; };
+		142FF8FB2A053D6C003304A9 /* LifeHash in Frameworks */ = {isa = PBXBuildFile; productRef = 142FF8FA2A053D6C003304A9 /* LifeHash */; };
 		142FF8FD2A053F08003304A9 /* lifeHashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142FF8FC2A053F08003304A9 /* lifeHashView.swift */; };
 		142FF8FF2A05DAD1003304A9 /* Squircle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142FF8FE2A05DAD1003304A9 /* Squircle.swift */; };
-		14C426112E403FF800501F79 /* KeychainSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426102E403FF800501F79 /* KeychainSwift */; };
-		14C426142E40400C00501F79 /* NostrKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426132E40400C00501F79 /* NostrKit */; };
-		14C426172E40402000501F79 /* SDWebImageSVGCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426162E40402000501F79 /* SDWebImageSVGCoder */; };
-		14C4261A2E40404300501F79 /* SimpleToast in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426192E40404300501F79 /* SimpleToast */; };
-		14C4261D2E40405300501F79 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 14C4261C2E40405300501F79 /* Kingfisher */; };
-		14C426202E4040B000501F79 /* LifeHash in Frameworks */ = {isa = PBXBuildFile; productRef = 14C4261F2E4040B000501F79 /* LifeHash */; };
-		14C426252E40416E00501F79 /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426242E40416E00501F79 /* RealmSwift */; };
-		14C426282E40420E00501F79 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 14C426272E40420E00501F79 /* SDWebImageSwiftUI */; };
 		14CDB0EA2A03F3A6003D6787 /* aApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB0E92A03F3A6003D6787 /* aApp.swift */; };
 		14CDB0EE2A03F3A8003D6787 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14CDB0ED2A03F3A8003D6787 /* Assets.xcassets */; };
 		14CDB0F22A03F3A9003D6787 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14CDB0F12A03F3A9003D6787 /* Preview Assets.xcassets */; };
+		14CDB0FA2A03F3FB003D6787 /* KeychainSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0F92A03F3FB003D6787 /* KeychainSwift */; };
+		14CDB0FD2A03F40E003D6787 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0FC2A03F40E003D6787 /* Kingfisher */; };
+		14CDB1002A03F42F003D6787 /* NostrKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB0FF2A03F42F003D6787 /* NostrKit */; };
+		14CDB1032A03F553003D6787 /* SimpleToast in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB1022A03F553003D6787 /* SimpleToast */; };
 		14CDB10A2A0404CD003D6787 /* bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1092A0404CD003D6787 /* bech32.swift */; };
 		14CDB10C2A04059F003D6787 /* ProofOfWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB10B2A04059F003D6787 /* ProofOfWork.swift */; };
 		14CDB1182A045B41003D6787 /* Keys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1172A045B41003D6787 /* Keys.swift */; };
 		14CDB11B2A046138003D6787 /* KeyGenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB11A2A046138003D6787 /* KeyGenView.swift */; };
+		14CDB11E2A04624C003D6787 /* SDWebImageSVGCoder in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */; };
+		14CDB1212A046274003D6787 /* SDWebImageSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 14CDB1202A046274003D6787 /* SDWebImageSwiftUI */; };
 		14CDB1DE2A046377003D6787 /* ReactionsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1262A046375003D6787 /* ReactionsBar.swift */; };
 		14CDB1DF2A046377003D6787 /* ReactionsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1272A046375003D6787 /* ReactionsBarView.swift */; };
 		14CDB1E12A046377003D6787 /* ButtonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB12A2A046375003D6787 /* ButtonStyles.swift */; };
@@ -141,8 +140,9 @@
 		14CDB2502A046378003D6787 /* acc-11.png in Resources */ = {isa = PBXBuildFile; fileRef = 14CDB1A22A046376003D6787 /* acc-11.png */; };
 		14CDB2512A046378003D6787 /* AnimatedBackgrounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A32A046376003D6787 /* AnimatedBackgrounds.swift */; };
 		14CDB2522A046378003D6787 /* Coordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A42A046376003D6787 /* Coordinator.swift */; };
+		14CDB2532A046378003D6787 /* AccentColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A52A046376003D6787 /* AccentColor.swift */; };
 		14CDB2542A046378003D6787 /* PostingOn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A62A046376003D6787 /* PostingOn.swift */; };
-		14CDB2552A046378003D6787 /* UsernameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A72A046376003D6787 /* UsernameView.swift */; };
+		14CDB2552A046378003D6787 /* UsernanmeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1A72A046376003D6787 /* UsernanmeView.swift */; };
 		14CDB2562A046378003D6787 /* NostrData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1AA2A046376003D6787 /* NostrData.swift */; };
 		14CDB2572A046378003D6787 /* RUserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1AB2A046376003D6787 /* RUserProfile.swift */; };
 		14CDB2582A046378003D6787 /* NostrRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CDB1AC2A046376003D6787 /* NostrRelay.swift */; };
@@ -248,6 +248,8 @@
 		14FCF8C52A0BBFF100936929 /* goat.png in Resources */ = {isa = PBXBuildFile; fileRef = 14FCF87C2A0BBFF000936929 /* goat.png */; };
 		14FCF8C62A0BBFF100936929 /* muttonchops.png in Resources */ = {isa = PBXBuildFile; fileRef = 14FCF87D2A0BBFF000936929 /* muttonchops.png */; };
 		14FCF8CB2A0D40C600936929 /* QR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FCF8CA2A0D40C600936929 /* QR.swift */; };
+		CBDF9C922E2ECCDC001CDC0A /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = CBDF9C912E2ECCDC001CDC0A /* RealmSwift */; settings = {ATTRIBUTES = (Required, ); }; };
+		CBDF9C942E2ED05F001CDC0A /* RealmSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = CBDF9C912E2ECCDC001CDC0A /* RealmSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -257,6 +259,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				CBDF9C942E2ED05F001CDC0A /* RealmSwift in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -392,8 +395,9 @@
 		14CDB1A22A046376003D6787 /* acc-11.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "acc-11.png"; sourceTree = "<group>"; };
 		14CDB1A32A046376003D6787 /* AnimatedBackgrounds.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnimatedBackgrounds.swift; sourceTree = "<group>"; };
 		14CDB1A42A046376003D6787 /* Coordinator.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Coordinator.swift; sourceTree = "<group>"; };
+		14CDB1A52A046376003D6787 /* AccentColor.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccentColor.swift; sourceTree = "<group>"; };
 		14CDB1A62A046376003D6787 /* PostingOn.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PostingOn.swift; sourceTree = "<group>"; };
-		14CDB1A72A046376003D6787 /* UsernameView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UsernameView.swift; sourceTree = "<group>"; };
+		14CDB1A72A046376003D6787 /* UsernanmeView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = UsernanmeView.swift; sourceTree = "<group>"; };
 		14CDB1AA2A046376003D6787 /* NostrData.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NostrData.swift; sourceTree = "<group>"; };
 		14CDB1AB2A046376003D6787 /* RUserProfile.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RUserProfile.swift; sourceTree = "<group>"; };
 		14CDB1AC2A046376003D6787 /* NostrRelay.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NostrRelay.swift; sourceTree = "<group>"; };
@@ -506,14 +510,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14C426252E40416E00501F79 /* RealmSwift in Frameworks */,
-				14C426202E4040B000501F79 /* LifeHash in Frameworks */,
-				14C4261A2E40404300501F79 /* SimpleToast in Frameworks */,
-				14C426172E40402000501F79 /* SDWebImageSVGCoder in Frameworks */,
-				14C426282E40420E00501F79 /* SDWebImageSwiftUI in Frameworks */,
-				14C426142E40400C00501F79 /* NostrKit in Frameworks */,
-				14C426112E403FF800501F79 /* KeychainSwift in Frameworks */,
-				14C4261D2E40405300501F79 /* Kingfisher in Frameworks */,
+				14CDB1032A03F553003D6787 /* SimpleToast in Frameworks */,
+				14CDB1002A03F42F003D6787 /* NostrKit in Frameworks */,
+				14CDB11E2A04624C003D6787 /* SDWebImageSVGCoder in Frameworks */,
+				CBDF9C922E2ECCDC001CDC0A /* RealmSwift in Frameworks */,
+				14CDB1212A046274003D6787 /* SDWebImageSwiftUI in Frameworks */,
+				14CDB0FD2A03F40E003D6787 /* Kingfisher in Frameworks */,
+				142FF8FB2A053D6C003304A9 /* LifeHash in Frameworks */,
+				14CDB0FA2A03F3FB003D6787 /* KeychainSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -678,8 +682,9 @@
 				14CDB13B2A046375003D6787 /* AvatarView.swift */,
 				14CDB1A32A046376003D6787 /* AnimatedBackgrounds.swift */,
 				14CDB1A42A046376003D6787 /* Coordinator.swift */,
+				14CDB1A52A046376003D6787 /* AccentColor.swift */,
 				14CDB1A62A046376003D6787 /* PostingOn.swift */,
-				14CDB1A72A046376003D6787 /* UsernameView.swift */,
+				14CDB1A72A046376003D6787 /* UsernanmeView.swift */,
 				142FF8FC2A053F08003304A9 /* lifeHashView.swift */,
 				142FF8FE2A05DAD1003304A9 /* Squircle.swift */,
 			);
@@ -1203,14 +1208,14 @@
 			);
 			name = a;
 			packageProductDependencies = (
-				14C426102E403FF800501F79 /* KeychainSwift */,
-				14C426132E40400C00501F79 /* NostrKit */,
-				14C426162E40402000501F79 /* SDWebImageSVGCoder */,
-				14C426192E40404300501F79 /* SimpleToast */,
-				14C4261C2E40405300501F79 /* Kingfisher */,
-				14C4261F2E4040B000501F79 /* LifeHash */,
-				14C426242E40416E00501F79 /* RealmSwift */,
-				14C426272E40420E00501F79 /* SDWebImageSwiftUI */,
+				14CDB0F92A03F3FB003D6787 /* KeychainSwift */,
+				14CDB0FC2A03F40E003D6787 /* Kingfisher */,
+				14CDB0FF2A03F42F003D6787 /* NostrKit */,
+				14CDB1022A03F553003D6787 /* SimpleToast */,
+				14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */,
+				14CDB1202A046274003D6787 /* SDWebImageSwiftUI */,
+				142FF8FA2A053D6C003304A9 /* LifeHash */,
+				CBDF9C912E2ECCDC001CDC0A /* RealmSwift */,
 			);
 			productName = a;
 			productReference = 14CDB0E62A03F3A6003D6787 /* a.app */;
@@ -1242,14 +1247,14 @@
 			);
 			mainGroup = 14CDB0DD2A03F3A6003D6787;
 			packageReferences = (
-				14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */,
-				14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */,
-				14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */,
-				14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */,
-				14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */,
-				14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */,
-				14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */,
-				14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
+				14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */,
+				14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */,
+				14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */,
+				14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */,
+				14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */,
+				14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
+				142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */,
+				CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */,
 			);
 			productRefGroup = 14CDB0E72A03F3A6003D6787 /* Products */;
 			projectDirPath = "";
@@ -1489,7 +1494,7 @@
 				14CDB2522A046378003D6787 /* Coordinator.swift in Sources */,
 				141E6BA22A181B9C0082DA2A /* KeyGen.swift in Sources */,
 				14CDB2572A046378003D6787 /* RUserProfile.swift in Sources */,
-				14CDB2552A046378003D6787 /* UsernameView.swift in Sources */,
+				14CDB2552A046378003D6787 /* UsernanmeView.swift in Sources */,
 				14CDB1E92A046377003D6787 /* FloatToolbarView.swift in Sources */,
 				14CDB1E72A046377003D6787 /* TextFieldView.swift in Sources */,
 				14CDB1EC2A046377003D6787 /* ViewModifiers.swift in Sources */,
@@ -1499,6 +1504,7 @@
 				14CDB0EA2A03F3A6003D6787 /* aApp.swift in Sources */,
 				14CDB2652A046378003D6787 /* ChatView.swift in Sources */,
 				14CDB1182A045B41003D6787 /* Keys.swift in Sources */,
+				14CDB2532A046378003D6787 /* AccentColor.swift in Sources */,
 				14CDB2622A046378003D6787 /* EventView.swift in Sources */,
 				14CDB2672A046378003D6787 /* NewChat.swift in Sources */,
 				14CDB25E2A046378003D6787 /* TextAreaNewEventView.swift in Sources */,
@@ -1634,11 +1640,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"a/Preview Content\"";
-				DEVELOPMENT_TEAM = PWL88685ZN;
+				DEVELOPMENT_TEAM = GNLB3A26FS;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = a;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -1649,12 +1654,12 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dfralan;
+				PRODUCT_BUNDLE_IDENTIFIER = nostr;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -1677,11 +1682,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"a/Preview Content\"";
-				DEVELOPMENT_TEAM = PWL88685ZN;
+				DEVELOPMENT_TEAM = GNLB3A26FS;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = a;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -1692,12 +1696,12 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dfralan;
+				PRODUCT_BUNDLE_IDENTIFIER = nostr;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -1732,15 +1736,31 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */ = {
+		142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/BlockchainCommons/LifeHash";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.0.0;
+			};
+		};
+		14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/evgenyneu/keychain-swift/";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 24.0.0;
+				minimumVersion = 20.0.0;
 			};
 		};
-		14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */ = {
+		14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/onevcat/Kingfisher";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+		14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/cnixbtc/NostrKit.git";
 			requirement = {
@@ -1748,39 +1768,31 @@
 				kind = branch;
 			};
 		};
-		14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SDWebImage/SDWebImageSVGCoder.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.8.0;
-			};
-		};
-		14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */ = {
+		14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sanzaru/SimpleToast.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.11.0;
+				minimumVersion = 0.7.1;
 			};
 		};
-		14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
+		14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
+			repositoryURL = "https://github.com/SDWebImage/SDWebImageSVGCoder.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 8.5.0;
+				minimumVersion = 1.0.0;
 			};
 		};
-		14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */ = {
+		14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/BlockchainCommons/LifeHash.git";
+			repositoryURL = "https://github.com/SDWebImage/SDWebImageSwiftUI.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 8.0.1;
+				minimumVersion = 2.0.0;
 			};
 		};
-		14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */ = {
+		CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/realm/realm-swift.git";
 			requirement = {
@@ -1788,56 +1800,48 @@
 				kind = branch;
 			};
 		};
-		14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SDWebImage/SDWebImageSwiftUI.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.1.3;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		14C426102E403FF800501F79 /* KeychainSwift */ = {
+		142FF8FA2A053D6C003304A9 /* LifeHash */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14C4260F2E403FF800501F79 /* XCRemoteSwiftPackageReference "keychain-swift" */;
-			productName = KeychainSwift;
-		};
-		14C426132E40400C00501F79 /* NostrKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14C426122E40400C00501F79 /* XCRemoteSwiftPackageReference "NostrKit" */;
-			productName = NostrKit;
-		};
-		14C426162E40402000501F79 /* SDWebImageSVGCoder */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14C426152E40402000501F79 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */;
-			productName = SDWebImageSVGCoder;
-		};
-		14C426192E40404300501F79 /* SimpleToast */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14C426182E40404300501F79 /* XCRemoteSwiftPackageReference "SimpleToast" */;
-			productName = SimpleToast;
-		};
-		14C4261C2E40405300501F79 /* Kingfisher */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14C4261B2E40405300501F79 /* XCRemoteSwiftPackageReference "Kingfisher" */;
-			productName = Kingfisher;
-		};
-		14C4261F2E4040B000501F79 /* LifeHash */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14C4261E2E4040B000501F79 /* XCRemoteSwiftPackageReference "LifeHash" */;
+			package = 142FF8F92A053D6B003304A9 /* XCRemoteSwiftPackageReference "LifeHash" */;
 			productName = LifeHash;
 		};
-		14C426242E40416E00501F79 /* RealmSwift */ = {
+		14CDB0F92A03F3FB003D6787 /* KeychainSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14C426212E40416E00501F79 /* XCRemoteSwiftPackageReference "realm-swift" */;
-			productName = RealmSwift;
+			package = 14CDB0F82A03F3FB003D6787 /* XCRemoteSwiftPackageReference "keychain-swift" */;
+			productName = KeychainSwift;
 		};
-		14C426272E40420E00501F79 /* SDWebImageSwiftUI */ = {
+		14CDB0FC2A03F40E003D6787 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 14C426262E40420E00501F79 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
+			package = 14CDB0FB2A03F40E003D6787 /* XCRemoteSwiftPackageReference "Kingfisher" */;
+			productName = Kingfisher;
+		};
+		14CDB0FF2A03F42F003D6787 /* NostrKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14CDB0FE2A03F42F003D6787 /* XCRemoteSwiftPackageReference "NostrKit" */;
+			productName = NostrKit;
+		};
+		14CDB1022A03F553003D6787 /* SimpleToast */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14CDB1012A03F553003D6787 /* XCRemoteSwiftPackageReference "SimpleToast" */;
+			productName = SimpleToast;
+		};
+		14CDB11D2A04624C003D6787 /* SDWebImageSVGCoder */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14CDB11C2A04624C003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSVGCoder" */;
+			productName = SDWebImageSVGCoder;
+		};
+		14CDB1202A046274003D6787 /* SDWebImageSwiftUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14CDB11F2A046274003D6787 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */;
 			productName = SDWebImageSwiftUI;
+		};
+		CBDF9C912E2ECCDC001CDC0A /* RealmSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CBDF9C7C2E2EBF92001CDC0A /* XCRemoteSwiftPackageReference "realm-swift" */;
+			productName = RealmSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
