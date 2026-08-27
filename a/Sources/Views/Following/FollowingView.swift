@@ -1,19 +1,44 @@
 // a
 
-import RealmSwift
 import SDWebImageSwiftUI
+import SwiftData
 import SwiftUI
 
 struct FollowingView: View {
 
   @EnvironmentObject var nostrData: NostrData
-  @ObservedRealmObject var userProfile: RUserProfile
-  @ObservedResults(RContactList.self) var contactLists
+  let publicKey: String
+  @Query var userProfiles: [RUserProfile]
+  @Query var contactLists: [RContactList]
+
+  init(publicKey: String) {
+    self.publicKey = publicKey
+
+    let profilePublicKey = publicKey
+    var profileDescriptor = FetchDescriptor<RUserProfile>(
+      predicate: #Predicate { $0.publicKey == profilePublicKey }
+    )
+    profileDescriptor.fetchLimit = 1
+    _userProfiles = Query(profileDescriptor)
+
+    var contactListDescriptor = FetchDescriptor<RContactList>(
+      predicate: #Predicate { $0.publicKey == profilePublicKey }
+    )
+    contactListDescriptor.fetchLimit = 1
+    _contactLists = Query(contactListDescriptor)
+  }
+
+  init(userProfile: RUserProfile) {
+    self.init(publicKey: userProfile.publicKey)
+  }
+
+  var userProfile: RUserProfile {
+    userProfiles.first ?? RUserProfile.createEmpty(withPublicKey: publicKey)
+  }
 
   var following: [RUserProfile] {
-    if let following = contactLists.filter("publicKey = %@", userProfile.publicKey).first?.following
-    {
-      return Array(following.sorted(byKeyPath: "name", ascending: false))
+    if let contactList = contactLists.first {
+      return contactList.following.sorted { $0.name > $1.name }
     }
     return []
   }
@@ -25,7 +50,7 @@ struct FollowingView: View {
 
         ForEach(following) { userProfile in
 
-          NavigationLink(value: Navigation.NavUserProfile(userProfile: userProfile)) {
+          NavigationLink(value: AppNavigation.Route.profile(publicKey: userProfile.publicKey)) {
             UserProfileListViewRow(userProfile: userProfile)
           }
           .id(userProfile.publicKey)
@@ -35,6 +60,9 @@ struct FollowingView: View {
 
     }
     .listStyle(.plain)
+    .task {
+      nostrData.fetchContactList(forPublicKey: publicKey)
+    }
     .navigationTitle("")
     .toolbar {
       ToolbarItem(placement: .principal) {
@@ -46,7 +74,8 @@ struct FollowingView: View {
 
 struct FollowingView_Previews: PreviewProvider {
   static var previews: some View {
-    FollowingView(userProfile: RUserProfile.createEmpty(withPublicKey: "abc"))
+    FollowingView(publicKey: "abc")
       .environmentObject(NostrData.shared)
+      .modelContainer(NostrData.shared.modelContainer)
   }
 }

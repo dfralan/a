@@ -27,14 +27,12 @@ struct RelaysView: View {
         DisclosureGroup {
 
           HStack(alignment: .firstTextBaseline) {
-            NavigationLink(destination: RelaysView()) {
-              Text("Admin")
-              Spacer()
-              HStack {
-                AvatarView(size: 30)
-                VStack(alignment: .leading) {
-                  usernameView(username: "Fer", nip05: "nostr.ar", extended: false)
-                }
+            Text("Admin")
+            Spacer()
+            HStack {
+              AvatarView(size: 30)
+              VStack(alignment: .leading) {
+                usernameView(username: "Fer", nip05: "nostr.ar", extended: false)
               }
             }
           }

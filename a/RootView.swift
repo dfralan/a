@@ -1,5 +1,6 @@
 // a
 
+import SwiftData
 import SwiftUI
 
 // MARK: - Root View
@@ -9,12 +10,19 @@ struct RootView: View {
   // MARK: - Properties
 
   @State private var selection: SelectedView? = .home
-  @StateObject var navigation: Navigation = Navigation()
+  @StateObject var navigation = AppNavigation()
   @StateObject var coordinator: Coordinator = Coordinator()
+  @StateObject var keyManager: KeyManager = KeyManager()
+  @EnvironmentObject var nostrData: NostrData
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Query private var userProfiles: [RUserProfile]
+  @State private var authenticatingSidebarKey: String?
+  @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+  @State private var isSidebarSheetPresented = false
 
   var body: some View {
     ZStack {
-      NavigationSplitView {
+      NavigationSplitView(columnVisibility: $columnVisibility) {
         sidebarContent
           .navigationTitle("Land")
       } detail: {
@@ -29,19 +37,43 @@ struct RootView: View {
     .navigationSplitViewStyle(.balanced)
     .environmentObject(navigation)
     .environmentObject(coordinator)
+    .environmentObject(keyManager)
+    .onAppear {
+      keyManager.loadKeys()
+    }
+    .onChange(of: selection) { oldSelection, newSelection in
+      if oldSelection != newSelection {
+        navigation.popToRoot()
+      }
+      closeSidebar()
+    }
+    .sheet(isPresented: $isSidebarSheetPresented) {
+      NavigationStack {
+        sidebarSheetContent
+          .navigationTitle("Land")
+          .navigationBarTitleDisplayMode(.inline)
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") {
+                closeSidebar()
+              }
+            }
+          }
+      }
+    }
     .preferredColorScheme(
       coordinator.themeMode > 0 ? coordinator.themeMode > 1 ? .dark : .light : .none
     )
     .tint(coordinator.accentColorSwitcher)/// Sets the tint or accent color of the entire app
+    .accentColor(coordinator.accentColorSwitcher)
     .saturation(coordinator.saturationColor)
     .font(.system(size: coordinator.selectedFontSize.fontSizeValue))
     .dynamicTypeSize(...DynamicTypeSize.large)
   }
 }
 
-enum SelectedView: String, Codable {
-  case home, messages, notifications, keyManager, relays, wallet, settings, collaborate, logout,
-    profileDetailed
+enum SelectedView: String, Codable, Hashable {
+  case home, messages, notifications, keyManager, relays, settings
   var title: String {
     rawValue.capitalized
   }
@@ -52,108 +84,209 @@ extension RootView {
   var sidebarContent: some View {
     List(selection: $selection) {
       Section(header: Text("Stored Keys")) {
-        link(to: .home)
-        HStack {
-          AvatarView(size: 30)
-          VStack(alignment: .leading) {
-            usernameView(username: "A", nip05: "nostr.ar", extended: false)
-            Text("npub1f...pz9c7")
-              .lineLimit(1)
+        if keyManager.storedKeys.isEmpty {
+          navigationLink(to: .keyManager)
+        } else {
+          ForEach(keyManager.storedKeys, id: \.self) { key in
+            Button {
+              authenticateAndSelectKey(key)
+            } label: {
+              sidebarKeyRow(for: key)
+            }
+            .buttonStyle(.plain)
+            .disabled(authenticatingSidebarKey != nil)
           }
-          Spacer()
-          Text("Switch")
-            .foregroundColor(.gray)
+          navigationLink(to: .keyManager)
         }
-        link(to: .keyManager)
       }
 
       Section(header: Text("Access")) {
-        link(to: .messages)
-        link(to: .notifications)
-        link(to: .relays)
-        link(to: .wallet)
+        navigationLink(to: .home)
+        navigationLink(to: .messages)
+        navigationLink(to: .notifications)
+        navigationLink(to: .relays)
       }
       Section(header: Text("More")) {
-        link(to: .settings)
-        link(to: .collaborate)
+        navigationLink(to: .settings)
       }
-      Section(header: Text("Log out")) {
-        link(to: .logout)
+      Section(header: Text("Connection")) {
+        networkToggleRow
       }
     }
   }
 
-  func link(to page: SelectedView) -> some View {
-    let title: String
-    let image: Image
+  var sidebarSheetContent: some View {
+    List {
+      Section(header: Text("Stored Keys")) {
+        if keyManager.storedKeys.isEmpty {
+          sheetButton(to: .keyManager)
+        } else {
+          ForEach(keyManager.storedKeys, id: \.self) { key in
+            Button {
+              authenticateAndSelectKey(key)
+            } label: {
+              sidebarKeyRow(for: key)
+            }
+            .buttonStyle(.plain)
+            .disabled(authenticatingSidebarKey != nil)
+          }
+          sheetButton(to: .keyManager)
+        }
+      }
 
+      Section(header: Text("Access")) {
+        sheetButton(to: .home)
+        sheetButton(to: .messages)
+        sheetButton(to: .notifications)
+        sheetButton(to: .relays)
+      }
+      Section(header: Text("More")) {
+        sheetButton(to: .settings)
+      }
+      Section(header: Text("Connection")) {
+        networkToggleRow
+      }
+    }
+  }
+
+  func sidebarKeyRow(for key: String) -> some View {
+    let publicKey = keyManager.publicKey(for: key) ?? key
+    let avatarURL = avatarURL(forKey: key)
+    let isSelected = keyManager.selectedKey == key
+
+    return HStack {
+      AvatarView(publicKey: publicKey, url: avatarURL, size: 30)
+      VStack(alignment: .leading) {
+        Text(keyManager.keyKindDescription(for: key))
+          .font(.subheadline)
+          .bold()
+        Text(publicKey.accordionString(index: 8))
+          .font(.caption)
+          .foregroundColor(.secondary)
+          .lineLimit(1)
+      }
+      Spacer()
+      if authenticatingSidebarKey == key {
+        ProgressView()
+          .controlSize(.small)
+      }
+      if isSelected {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundColor(.accentColor)
+      }
+    }
+    .contentShape(Rectangle())
+  }
+
+  func avatarURL(forKey key: String) -> URL? {
+    guard let publicKeyHex = keyManager.publicKeyHex(for: key) else { return nil }
+    return userProfiles.first { $0.publicKey == publicKeyHex }?.avatarUrl
+  }
+
+  func authenticateAndSelectKey(_ key: String) {
+    guard authenticatingSidebarKey == nil else { return }
+
+    authenticatingSidebarKey = key
+
+    Task {
+      let reason =
+        keyManager.selectedKey == key
+        ? "Unlock the active key."
+        : "Unlock this key to make it active."
+      let didAuthenticate = await KeyAccessAuthenticator.authenticate(reason: reason)
+
+      await MainActor.run {
+        authenticatingSidebarKey = nil
+
+        guard didAuthenticate else {
+          EfimerousManager.shared.showMessage("Authentication canceled")
+          return
+        }
+
+        keyManager.selectKey(key)
+        selection = .home
+        closeSidebar()
+      }
+    }
+  }
+
+  func navigationLink(to page: SelectedView) -> some View {
+    NavigationLink(value: page) {
+      sidebarLabel(for: page)
+    }
+  }
+
+  func sheetButton(to page: SelectedView) -> some View {
+    Button {
+      select(page)
+    } label: {
+      HStack {
+        sidebarLabel(for: page)
+        Spacer()
+        Image(systemName: "chevron.right")
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(.tertiary)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  func sidebarLabel(for page: SelectedView) -> some View {
+    sidebarPlainLabel(for: page)
+  }
+
+  func sidebarPlainLabel(for page: SelectedView) -> some View {
+    let metadata = sidebarLabelMetadata(for: page)
+
+    return HStack {
+      metadata.image
+        .frame(minWidth: 20)
+      Text(metadata.title)
+    }
+    .foregroundColor(.primary)
+  }
+
+  func sidebarLabelMetadata(for page: SelectedView) -> (title: String, image: Image) {
     switch page {
     case .home:
-      title = "Home"
-      image = Image(systemName: "house")
-      return AnyView(
-        NavigationLink(destination: detailContent(for: page)) {
-          HStack {
-            AvatarView(size: 40)
-            VStack(alignment: .leading) {
-              usernameView(username: "Alan", nip05: "nostr.ar", extended: false)
-              Text("npub1f...pz9c7")
-                .lineLimit(1)
-            }
-            Spacer()
-            Text("Logged").bold()
-              .foregroundColor(.accentColor)
-          }
-        })
+      return ("Home", Image(systemName: "house"))
     case .messages:
-      title = "Messages"
-      image = Image(systemName: "message")
+      return ("Messages", Image(systemName: "message"))
     case .notifications:
-      title = "Notifications"
-      image = Image(systemName: "bell")
+      return ("Notifications", Image(systemName: "bell"))
     case .keyManager:
-      title = "Add a key"
-      image = Image(systemName: "key")
+      return ("Keys", Image(systemName: "key"))
     case .relays:
-      title = "Relays"
-      image = Image(systemName: "aqi.medium")
-    case .wallet:
-      title = "Wallet"
-      image = Image(systemName: "bolt")
+      return ("Relays", Image(systemName: "aqi.medium"))
     case .settings:
-      title = "Settings"
-      image = Image(systemName: "transmission")
-    case .collaborate:
-      title = "Collaborate"
-      image = Image(systemName: "heart")
-    case .logout:
-      title = "Logout"
-      image = Image(systemName: "arrowshape.turn.up.left")
-      return AnyView(
-        NavigationLink(destination: detailContent(for: page)) {
-          HStack {
-            Image(systemName: "door.right.hand.open")
-              .frame(width: 20)
-            HStack {
-              Text("Logout from")
-              usernameView(username: "Alan", nip05: "nostr.ar", extended: false)
-            }
-          }
-        })
-    case .profileDetailed:
-      title = "Detail"
-      image = Image(systemName: "trash")
+      return ("Settings", Image(systemName: "transmission"))
     }
+  }
 
-    return AnyView(
-      NavigationLink(destination: detailContent(for: page)) {
-        HStack {
-          image
-            .frame(minWidth: 20)
-          Text(title)
+  var networkToggleRow: some View {
+    Toggle(
+      isOn: Binding(
+        get: { nostrData.isNetworkEnabled },
+        set: { nostrData.setNetworkEnabled($0) }
+      )
+    ) {
+      HStack(spacing: 12) {
+        Image(systemName: nostrData.isNetworkEnabled ? "power.circle.fill" : "power.circle")
+          .frame(minWidth: 20)
+          .foregroundStyle(nostrData.isNetworkEnabled ? .green : .secondary)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(nostrData.isNetworkEnabled ? "Online" : "Offline")
+            .foregroundStyle(.primary)
+
+          Text(nostrData.isNetworkEnabled ? "Relays active" : "Relays paused")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .foregroundColor(.primary)
-      })
+      }
+    }
+    .tint(.green)
   }
 
 }
@@ -172,16 +305,85 @@ extension RootView {
   @ViewBuilder
   func detailContent(for selectedView: SelectedView) -> some View {
     switch selectedView {
-    case .home: HomeView()
-    case .messages: MessagesView(userProfile: RUserProfile())
-    case .notifications: NotificationsView(userProfile: RUserProfile())
-    case .keyManager: KeyGen()
+    case .home:
+      appNavigationStack {
+        HomeView(
+          onMenuTap: showSidebar,
+          onMessagesTap: { select(.messages) },
+          onNotificationsTap: { select(.notifications) }
+        )
+      }
+    case .messages:
+      appNavigationStack {
+        MessagesView()
+      }
+    case .notifications:
+      appNavigationStack {
+        NotificationsView()
+      }
+    case .keyManager: KeyManagerSecuredView()
     case .relays: RelayManager()
-    case .wallet: WalletListView()
     case .settings: SettingsView()
-    case .collaborate: CollaborateView()
-    case .logout: HomeView()
-    case .profileDetailed: ProfileDetailView(userProfile: RUserProfile())
+    }
+  }
+
+  func showSidebar() {
+    if usesCompactSidebarSheet {
+      isSidebarSheetPresented = true
+    } else {
+      withAnimation(.spring(response: 0.22, dampingFraction: 0.86)) {
+        columnVisibility = .all
+      }
+    }
+  }
+
+  func closeSidebar() {
+    isSidebarSheetPresented = false
+    columnVisibility = .detailOnly
+  }
+
+  func select(_ page: SelectedView) {
+    navigation.popToRoot()
+    selection = page
+    closeSidebar()
+  }
+
+  private var usesCompactSidebarSheet: Bool {
+    horizontalSizeClass != .regular
+  }
+
+  func appNavigationStack<Content: View>(
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    NavigationStack(path: $navigation.path) {
+      content()
+        .navigationDestination(for: AppNavigation.Route.self) { route in
+          routeDestination(for: route)
+        }
+    }
+  }
+
+  @ViewBuilder
+  func routeDestination(for route: AppNavigation.Route) -> some View {
+    switch route {
+    case .profile(let publicKey):
+      ProfileDetailView(publicKey: publicKey)
+    case .following(let publicKey):
+      FollowingView(publicKey: publicKey)
+    case .followers(let publicKey):
+      FollowersView(publicKey: publicKey)
+    case .qr(let publicKey):
+      QRView(publicKey: publicKey)
+    case .editProfile(let publicKey):
+      EditProfileView(publicKey: publicKey)
+    case .chat(let publicKey):
+      ChatView(publicKey: publicKey)
+    case .event(let reference):
+      ThreadView(target: reference.threadTarget)
+    case .thread(let target):
+      ThreadView(target: target)
+    case .search:
+      SearchView()
     }
   }
 }
@@ -189,7 +391,8 @@ extension RootView {
 struct RootView_Previews: PreviewProvider {
   static var previews: some View {
     RootView()
-      .environmentObject(Navigation())
+      .environmentObject(AppNavigation())
       .environmentObject(NostrData.shared.initPreview())
+      .environmentObject(KeyManager())
   }
 }

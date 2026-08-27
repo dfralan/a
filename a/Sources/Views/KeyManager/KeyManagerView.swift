@@ -1,366 +1,420 @@
-import LifeHash
-/// Life Hash Library for hash visualization
+// a
+
+import SwiftData
 import SwiftUI
 
 // MARK: - Key Manager View
 
 struct KeyManagerView: View {
+  @EnvironmentObject var keyManager: KeyManager
 
-  // MARK: - Properties
-
-  /// Initialize KeyManager instance to manage keys
-  @ObservedObject var keyManager = KeyManager()
-
-  /// Key entered into the textfield
-  @State private var inputKey = ""
-
-  /// Determines whether the view is in edit mode
-  @State private var isEditing = false
-
-  /// Whether the entered key is valid
-  @State private var isInputKeyValid = false
-
-  /// Helper or validation message to display
-  @State private var validationMessage = ""
-
-  /// Alert for deleting all keys
   @State private var showDeleteAllKeysAlert = false
-
-  /// Alert for deleting a single key when is a private one
-  @State private var showDeleteKeyAlert = false
-
-  /// Focus on textfield when there
-  @State private var isFocused: Bool = false
-  @FocusState private var textFieldFocus: Bool
-
-  // MARK: - Body
 
   var body: some View {
     NavigationStack {
-      /// Display list of keys
-      VStack(spacing: 15) {
-        HStack {
-
-          /// Textfield for entering a new key
-          HStack {
-            TextField("Paste a new nsec or npub...", text: $inputKey)
-              .focused($textFieldFocus)
-            /// Show delete content button if textfield is not empty
-            if !inputKey.isEmpty {
-              Button {
-                inputKey = ""
-                validationMessage = ""
-                isInputKeyValid = false
-              } label: {
-                Image(systemName: "delete.left")
-              }
-            }
-          }
-          .RoundedThinStyle()
-
-          /// Listen for changes in the textfield
-          .onChange(of: inputKey) { newValue in
-            if !inputKey.isEmpty {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)) {
-                if keyManager.isValidBech32EncodedKey(inputKey) {
-                  isInputKeyValid = true
-                  validationMessage = "Valid key"
-                } else {
-                  isInputKeyValid = false
-                  validationMessage =
-                    "The key must start with 'nsec' or 'npub' and be 63 characters long."
-                }
-              }
-            }
+      Form {
+        Section {
+          NavigationLink {
+            KeyGen(initialMode: .generate)
+          } label: {
+            Label("Create New Key", systemImage: "plus.circle")
           }
 
-          /// Button for adding a key (only visible when key is valid)
-          if isInputKeyValid {
-            Button {
-              isEditing = false
-              keyManager.saveKey(inputKey)
-              inputKey = ""
-              validationMessage = ""
-              isInputKeyValid = false
-            } label: {
-              Image(systemName: "plus")
-            }
+          NavigationLink {
+            KeyGen(initialMode: .importExisting)
+          } label: {
+            Label("Import Existing Key", systemImage: "square.and.arrow.down")
           }
+        } footer: {
+          Text("Keys are saved in this device's Keychain.")
         }
 
-        /// Display validation message
-        if !validationMessage.isEmpty {
-          HStack {
-            Text(validationMessage)
-            Spacer()
-          }
-        }
-        ScrollView(showsIndicators: false) {
-          VStack(spacing: 15) {
+        Section {
+          if keyManager.storedKeys.isEmpty {
+            Label("No saved keys", systemImage: "key")
+              .foregroundColor(.secondary)
+          } else {
             ForEach(keyManager.storedKeys, id: \.self) { key in
-              HStack(spacing: 10) {
-                /// Display key information
-                KeyItemView(key: key)
-                  //.padding(10)
-                  //.background(.ultraThinMaterial)
-                  .cornerRadius(9)
-                /// Delete key button (only visible when editing)
-                if isEditing {
-                  Spacer()
-                  Button(role: .destructive) {
-                    keyManager.deleteKey(key)
-                  } label: {
-                    Image(systemName: "trash")
-                  }
-                }
-              }
-              Divider()
-
-            }
-          }
-
-          if isEditing {
-            /// Content when there is no keys stored
-            if keyManager.storedKeys.count > 1 {
-              ///Delete all keys button (Only visible when there is more than one key)
-              Button(role: .destructive) {
-                showDeleteAllKeysAlert = true
+              NavigationLink {
+                KeyDetailView(key: key)
               } label: {
-                Text("Delete All Keys")
-                Image(systemName: "trash")
-              }.padding()
-            }
-            /// Content when there is no keys stored
-            if keyManager.storedKeys.count < 1 {
-              Button {
-                isFocused = true
-                textFieldFocus = true
-              } label: {
-                Text("No keys added")
+                StoredKeyRow(key: key)
               }
             }
+            .onDelete(perform: deleteKeys)
           }
-
+        } header: {
+          Text("Wallets")
+        } footer: {
+          Text("Open a wallet to view details or make it active. Swipe left or use Edit to delete.")
         }
 
+        if !keyManager.storedKeys.isEmpty {
+          Section {
+            Button(role: .destructive) {
+              showDeleteAllKeysAlert = true
+            } label: {
+              Label("Delete All Keys", systemImage: "trash")
+            }
+          }
+        }
       }
-      .padding()
-
-      /// Retrieve existent stored keys on view appear
-      .onAppear {
-        keyManager.saveKey("nsec1c6ccyshx0etgyzgxe29d0q08r6e0rg5epfdgj2et4sl5mt3k9p8s63na24")
-        keyManager.saveKey("npub19fm9h69lna6wrejzs4k0pqmssug8pt3z37c5l3jqny9ghu3t4rzq7l3fwq")
-        keyManager.loadKeys()
-      }
-
-      /// Hide keyboard when tap outside content
-      .onTapGesture {
-        UIApplication.shared.sendAction(
-          #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-      }
-
-      .navigationTitle("Key Manager")
-
-      /// Toolbar elements
+      .navigationTitle("Keys")
+      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .navigationBarTrailing) {
-
-          /// Edit button toggle
           if !keyManager.storedKeys.isEmpty {
-            Button {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)) {
-                isEditing.toggle()
-              }
-            } label: {
-              Text(isEditing ? "Done" : "Edit")
-            }
+            EditButton()
           }
         }
       }
-
-      /// Delete all confirmation alert
+      .onAppear {
+        keyManager.loadKeys()
+      }
       .alert(isPresented: $showDeleteAllKeysAlert) {
         Alert(
-          title: Text("Delete all saved keys"),
-          message: Text(
-            "Are you sure you want to delete all keys? If you do not have a backup with them you will lose access forever."
-          ),
+          title: Text("Delete All Keys?"),
+          message: Text("This removes every saved key from this device. Make sure you have a backup before deleting private keys."),
           primaryButton: .destructive(Text("Delete All")) {
-            ///Delete all keys stored
             keyManager.deleteAllKeys()
-            /// Hide alert
-            showDeleteAllKeysAlert = false
           },
           secondaryButton: .cancel()
         )
       }
     }
   }
+
+  private func deleteKeys(at offsets: IndexSet) {
+    let keysToDelete = offsets.map { keyManager.storedKeys[$0] }
+    keysToDelete.forEach { keyManager.deleteKey($0) }
+  }
 }
 
-// MARK: - Key Manager View
+private enum StoredKeyCopyTarget {
+  case publicKey
+  case publicKeyHex
+  case privateKey
+}
 
-struct KeyItemView: View {
+private struct StoredKeyRow: View {
+  @EnvironmentObject var keyManager: KeyManager
+  @Query private var userProfiles: [RUserProfile]
 
-  // MARK: - Properties
+  let key: String
 
-  /// Passed key to create view
-  @State var key: String
+  private var publicKey: String {
+    keyManager.publicKey(for: key) ?? key
+  }
 
-  /// Private key visualization state
-  @State private var privateKeyIsShowing = false
+  private var publicKeyHex: String? {
+    keyManager.publicKeyHex(for: key)
+  }
 
-  /// Blurred private key toggle
-  @State private var isBlurred = false
+  private var userProfile: RUserProfile? {
+    guard let publicKeyHex else { return nil }
+    return userProfiles.first { $0.publicKey == publicKeyHex }
+  }
+
+  private var avatarURL: URL? {
+    userProfile?.avatarUrl
+  }
+
+  private var displayName: String {
+    if let name = userProfile?.name, name.isValidName() {
+      return name
+    }
+
+    return "Anonymous"
+  }
+
+  private var isSelected: Bool {
+    keyManager.selectedKey == key
+  }
 
   var body: some View {
-    HStack {
-      let version: LifeHashVersion = .version2
-      let size: CGFloat = 50
-      if let decoded = decode_bech32_key(key) {
+    HStack(spacing: 12) {
+      AvatarView(publicKey: publicKey, url: avatarURL, size: 40)
 
-        /// Handling public key
-        if case .pub(let publicKeyHexed) = decoded {
-          let hashedData: Data? = Data(publicKeyHexed.utf8)
-          /// HashLive digital pingerprint image
-          UIKitLifeHashView(hashInput: hashedData, version: version, size: size)
-            .frame(width: size, height: size)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-          /// Bech32 encoded public and private keys
-          VStack(alignment: .leading) {
-            VStack(alignment: .leading) {
-              if privateKeyIsShowing {
-                Text(key)
-                  .onTapGesture {
-                    UIPasteboard.general.string = key
-                  }
+      VStack(alignment: .leading, spacing: 3) {
+        Text(displayName)
+          .font(.body)
+        HStack(spacing: 4) {
+          Text(keyManager.keyKindDescription(for: key))
+          Text(publicKey.accordionString(index: 10))
+            .font(.caption.monospaced())
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .lineLimit(1)
+      }
 
-              } else {
-                accordionString(key, index: 10)
-                Text("Public key only")
-                  .foregroundColor(.secondary)
-                  .font(.subheadline)
-              }
+      Spacer()
 
-            }
-          }
-          Spacer()
+      if isSelected {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundColor(.accentColor)
+      }
+    }
+    .contentShape(Rectangle())
+    .padding(.vertical, 3)
+  }
+}
 
-          /// Show private key button toggle
-          Button {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)) {
-              privateKeyIsShowing.toggle()
-            }
-          } label: {
-            Image(systemName: "chevron.down")
-              .rotationEffect(Angle.degrees(privateKeyIsShowing ? 540 : 0))
-          }
-        }/// Handling a private key
-        else if case .sec(let privKeyHex) = decoded {
-          /// Decoding private key bech32 to hex
-          let publicKeyHex = privkey_to_pubkey(privkey: privKeyHex)
-          /// Building a full keypair from decoded private key
-          let keypair = Keypair(pubkey: publicKeyHex!, privkey: privKeyHex)
-          /// Declaring string data
-          let publicKey = keypair.pubkey_bech32
-          let privateKey = keypair.privkey_bech32!
-          /// HashLive digital pingerprint image
-          let hashInput: Data? = Data(publicKeyHex!.utf8)
-          /// Bech32 encoded public and private keys
-          VStack(alignment: .leading) {
+private struct KeyDetailView: View {
+  @Environment(\.dismiss) private var dismiss
+  @EnvironmentObject var keyManager: KeyManager
+  @Query private var userProfiles: [RUserProfile]
 
-            HStack {
-              UIKitLifeHashView(hashInput: hashInput, version: version, size: size)
-                .frame(width: size, height: size)
-                .onAppear {
-                  print(hashInput?.bytes)
-                }
-                //.cornerRadius(9)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
-              VStack(alignment: .leading) {
-                if privateKeyIsShowing {
-                  Text(publicKey)
-                    .onTapGesture {
-                      UIPasteboard.general.string = publicKey
-                    }
+  let key: String
 
-                } else {
-                  accordionString(publicKey, index: 10)
-                  Text("Full keypair")
-                    .foregroundColor(.secondary)
-                    .font(.subheadline)
-                }
+  @State private var showsPrivateKey = false
+  @State private var copiedTarget: StoredKeyCopyTarget?
+  @State private var isSelectingKey = false
+  @State private var isAuthenticatingPrivateKey = false
 
-              }
+  private var publicKey: String {
+    keyManager.publicKey(for: key) ?? key
+  }
 
-              Spacer()
+  private var publicKeyHex: String? {
+    keyManager.publicKeyHex(for: key)
+  }
 
-              /// Show private key button toggle
-              Button {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)) {
-                  privateKeyIsShowing.toggle()
-                }
-              } label: {
-                Image(systemName: "chevron.down")
-                  .rotationEffect(Angle.degrees(privateKeyIsShowing ? 540 : 0))
-              }
-            }
-            if privateKeyIsShowing {
-              /// Private key
-              VStack(alignment: .leading, spacing: 10) {
-                Text("Your private key:")
-                Button {
-                  isBlurred.toggle()
-                } label: {
-                  ZStack {
-                    if !isBlurred {
-                      HStack {
-                        Text("Show key")
-                        Image(systemName: "lock")
-                      }
-                    }
+  private var userProfile: RUserProfile? {
+    guard let publicKeyHex else { return nil }
+    return userProfiles.first { $0.publicKey == publicKeyHex }
+  }
 
-                    Text(privateKey)
-                      .lineLimit(privateKeyIsShowing ? 12 : 0)
-                      .foregroundColor(.primary)
-                      .blur(radius: isBlurred ? 0 : 10)
-                  }
-                  .frame(maxWidth: .infinity)
+  private var avatarURL: URL? {
+    userProfile?.avatarUrl
+  }
 
-                }
-                .buttonStyle(.bordered)
-                Text(
-                  "Sharing keys can compromise the security of the encrypted data. Please do not share this key with anyone."
-                )
-                .font(.subheadline)
-                .foregroundColor(.red)
-                HStack {
-                  Button {
-                    UIPasteboard.general.string = privateKey
-                  } label: {
-                    HStack {
-                      Text("Copy private key")
-                        .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity)
-                  }
-                  .buttonStyle(.bordered)
-                  Button {
-                    UIPasteboard.general.string = privateKey
-                  } label: {
-                    HStack {
-                      Text("Copy public key")
-                        .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity)
-                  }
-                  .buttonStyle(.borderedProminent)
+  private var displayName: String {
+    if let name = userProfile?.name, name.isValidName() {
+      return name
+    }
 
-                }
-              }
-            }
+    return "Anonymous"
+  }
+
+  private var isSelected: Bool {
+    keyManager.selectedKey == key
+  }
+
+  private var hasPrivateKey: Bool {
+    guard let decoded = decode_bech32_key(key) else { return false }
+    if case .sec = decoded {
+      return true
+    }
+    return false
+  }
+
+  var body: some View {
+    Form {
+      Section {
+        VStack(spacing: 12) {
+          AvatarView(publicKey: publicKey, url: avatarURL, size: 112)
+            .padding(.top, 10)
+
+          VStack(spacing: 4) {
+            Text(displayName)
+              .font(.title3)
+              .fontWeight(.semibold)
+
+            Text(keyManager.keyKindDescription(for: key))
+              .font(.subheadline)
+              .foregroundColor(.secondary)
           }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .listRowBackground(Color.clear)
+      }
+
+      Section {
+        keyValueRow(
+          title: "Public Key",
+          value: publicKey.accordionString(index: 14),
+          copyValue: publicKey,
+          target: .publicKey
+        )
+
+        if let publicKeyHex {
+          keyValueRow(
+            title: "Public Key Hex",
+            value: publicKeyHex.accordionString(index: 14),
+            copyValue: publicKeyHex,
+            target: .publicKeyHex
+          )
+        }
+      } header: {
+        Text("Identity")
+      } footer: {
+        Text("The public key identifies this account and can be shared.")
+      }
+
+      if hasPrivateKey {
+        Section {
+          HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Private Key")
+              Text(showsPrivateKey ? key.accordionString(index: 14) : "Hidden")
+                .font(.caption.monospaced())
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+              togglePrivateKeyVisibility()
+            } label: {
+              if isAuthenticatingPrivateKey {
+                ProgressView()
+                  .controlSize(.small)
+              } else {
+                Image(systemName: showsPrivateKey ? "eye.slash" : "eye")
+              }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isAuthenticatingPrivateKey)
+
+            if showsPrivateKey {
+              copyButton(value: key, target: .privateKey)
+            }
+          }
+          .padding(.vertical, 2)
+        } header: {
+          Text("Signing")
+        } footer: {
+          Text("Keep the private key private. Anyone with it can use this account.")
+        }
+      }
+
+      Section {
+        Button {
+          selectThisKey()
+        } label: {
+          Text(isSelectingKey ? "Unlocking" : isSelected ? "Selected" : "Use This Key")
+            .fontWeight(.semibold)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isSelected || isSelectingKey ? .secondary : .accentColor)
+        .disabled(isSelected || isSelectingKey)
+      }
+    }
+    .navigationTitle("Wallet")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func keyValueRow(
+    title: String,
+    value: String,
+    copyValue: String,
+    target: StoredKeyCopyTarget
+  ) -> some View {
+    HStack(spacing: 10) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(title)
+        Text(value)
+          .font(.caption.monospaced())
+          .foregroundColor(.secondary)
+          .lineLimit(1)
+      }
+
+      Spacer()
+
+      copyButton(value: copyValue, target: target)
+    }
+    .padding(.vertical, 2)
+  }
+
+  private func copyButton(value: String, target: StoredKeyCopyTarget) -> some View {
+    Button {
+      if target == .privateKey {
+        authenticatePrivateKeyAccess {
+          copyValue(value, target: target)
+        }
+      } else {
+        copyValue(value, target: target)
+      }
+    } label: {
+      Label(
+        copiedTarget == target ? "Copied" : "Copy",
+        systemImage: copiedTarget == target ? "checkmark" : "doc.on.doc"
+      )
+    }
+    .buttonStyle(.borderless)
+    .disabled(target == .privateKey && isAuthenticatingPrivateKey)
+  }
+
+  private func selectThisKey() {
+    guard !isSelected && !isSelectingKey else { return }
+
+    isSelectingKey = true
+
+    Task {
+      let didAuthenticate = await KeyAccessAuthenticator.authenticate(
+        reason: "Unlock this key to make it active."
+      )
+
+      await MainActor.run {
+        isSelectingKey = false
+
+        guard didAuthenticate else {
+          EfimerousManager.shared.showMessage("Authentication canceled")
+          return
+        }
+
+        dismiss()
+        keyManager.selectKey(key)
+      }
+    }
+  }
+
+  private func togglePrivateKeyVisibility() {
+    if showsPrivateKey {
+      showsPrivateKey = false
+      return
+    }
+
+    authenticatePrivateKeyAccess {
+      showsPrivateKey = true
+    }
+  }
+
+  private func authenticatePrivateKeyAccess(then action: @escaping () -> Void) {
+    guard !isAuthenticatingPrivateKey else { return }
+
+    isAuthenticatingPrivateKey = true
+
+    Task {
+      let didAuthenticate = await KeyAccessAuthenticator.authenticate(
+        reason: "Unlock the private key."
+      )
+
+      await MainActor.run {
+        isAuthenticatingPrivateKey = false
+
+        guard didAuthenticate else {
+          EfimerousManager.shared.showMessage("Authentication canceled")
+          return
+        }
+
+        action()
+      }
+    }
+  }
+
+  private func copyValue(_ value: String, target: StoredKeyCopyTarget) {
+    UIPasteboard.general.string = value
+    copiedTarget = target
+    EfimerousManager.shared.showMessage("Copied")
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+      if copiedTarget == target {
+        copiedTarget = nil
       }
     }
   }
@@ -369,5 +423,6 @@ struct KeyItemView: View {
 struct KeychainView_Previews: PreviewProvider {
   static var previews: some View {
     KeyManagerView()
+      .environmentObject(KeyManager())
   }
 }

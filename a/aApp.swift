@@ -1,6 +1,7 @@
 // a
 
 import SwiftUI
+import SwiftData
 
 @main
 
@@ -20,16 +21,18 @@ struct aApp: App {
     WindowGroup {
       RootView()
         .environmentObject(nostrData)
+        .modelContainer(nostrData.modelContainer)
     }
 
     // MARK: - Actions to retrieve on app scene change
 
-    .onChange(of: scenePhase) { phase in
+    .onChange(of: scenePhase) { _, phase in
       switch phase {
 
       case .background:
         /// The scene is in the background. (Ex: The user switches to another application or when the application is running in the background.)
         print("'a' => Background Phase")
+        nostrData.disconnect()
 
       case .active:
         /// The scene is active and visible to the user. (Ex: The user is interacting with the application in the foreground.)
@@ -40,8 +43,6 @@ struct aApp: App {
       case .inactive:
         /// The scene is inactive but still visible to the user. (Ex: There is another window or overlaying dialog partially hiding the current scene.)
         print("'a' => Inactive Phase")
-        nostrData.disconnect()
-      /// Call the disconnect() method of the nostrData object.
 
       default:
         /// The scene has been terminated and is no longer available.
@@ -51,4 +52,3 @@ struct aApp: App {
     }
   }
 }
-

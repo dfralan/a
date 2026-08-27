@@ -2,8 +2,8 @@
 
 import CoreImage.CIFilterBuiltins
 import Foundation
-import RealmSwift
 import SDWebImageSwiftUI
+import SwiftData
 import SwiftUI
 
 // MARK: - QRView
@@ -12,23 +12,38 @@ struct QRView: View {
 
   // MARK: - Properties
 
-  /// Navigation enviroment context
-  @EnvironmentObject var nostrData: NostrData
-  @EnvironmentObject var navigation: Navigation
-
-  /// Realm Object of the actual user profile
-  @ObservedRealmObject var userProfile: RUserProfile
+  let publicKey: String
+  @Query var userProfiles: [RUserProfile]
 
   /// Sharing screenshot sheet state
   @State private var isShowingShareSheet = false
+
+  init(publicKey: String) {
+    self.publicKey = publicKey
+
+    let profilePublicKey = publicKey
+    var descriptor = FetchDescriptor<RUserProfile>(
+      predicate: #Predicate { $0.publicKey == profilePublicKey }
+    )
+    descriptor.fetchLimit = 1
+    _userProfiles = Query(descriptor)
+  }
+
+  init(userProfile: RUserProfile) {
+    self.init(publicKey: userProfile.publicKey)
+  }
+
+  var userProfile: RUserProfile {
+    userProfiles.first ?? RUserProfile.createEmpty(withPublicKey: publicKey)
+  }
 
   // MARK: - Main View
 
   var body: some View {
 
     let avatarUrl = userProfile.avatarUrl
-    let username = userProfile.name.isValidName() ? ("@" + userProfile.name) : "Anonymous"
-    let pubkey = userProfile.publicKey
+    let username = userProfile.name.isValidName() ? userProfile.name : "Anonymous"
+    let pubkey = publicKey
     let pubkey_bech32 = bech32_pubkey(pubkey) ?? pubkey
     let qrURL = "nostr:\(pubkey_bech32)"
 
@@ -43,17 +58,13 @@ struct QRView: View {
         }
         .frame(width: 220, height: 220, alignment: .center)
         HStack(alignment: .top) {
-          AvatarView(url: avatarUrl, size: 40)
+          AvatarView(publicKey: pubkey, url: avatarUrl, size: 40)
           VStack(alignment: .leading) {
             Text(username)
               .bold()
 
-            (Text(pubkey_bech32) + Text(Image(systemName: "key.horizontal")))
+            Text("\(pubkey_bech32) \(Image(systemName: "key.horizontal"))")
               .font(.caption2)
-              .textSelection(.enabled)
-              .onAppear {
-                print(pubkey_bech32)
-              }
           }
           Spacer()
         }

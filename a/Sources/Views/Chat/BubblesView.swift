@@ -1,361 +1,486 @@
 // a
 
-import Combine
+import SwiftData
 import SwiftUI
 
-struct ChatBubbleShape: Shape {
-  let isFromCurrentUser: Bool
-  var lastOfRow: Bool
-  var firstOfRow: Bool
+enum ChatMessageDeliveryState: Equatable {
+  case pending
+  case sent
+  case failed
 
-  func path(in rect: CGRect) -> Path {
-    var path = Path()
-
-    let cornerRadius = 20.0
-    let smallRadius = 9.0
-    let radius = cornerRadius
-    let tipRadius = 5.0
-    let width = rect.size.width
-    //let width = (rect.size.width) < 100 ? 100 : (rect.size.width)
-    let height = rect.size.height
-
-    //RIGHT BUBBLE
-    if isFromCurrentUser {
-
-      // 1 START BOTTOM RIGHT
-      path.move(to: CGPoint(x: width - radius, y: height))
-
-      // 2 RADIUS BOTTOM RIGHT
-      path.addArc(
-        tangent1End: CGPoint(x: width + (lastOfRow ? tipRadius : 0), y: height),
-        tangent2End: CGPoint(x: width, y: height - radius),
-        radius: lastOfRow ? tipRadius : smallRadius)
-
-      // 3 RIGHT LINE
-      path.addLine(to: CGPoint(x: width, y: (height - radius) + (lastOfRow ? tipRadius : 0)))
-
-      // 4 RADIUS TOP RIGHT
-      path.addArc(
-        tangent1End: CGPoint(x: width, y: 0), tangent2End: CGPoint(x: width - radius, y: 0),
-        radius: firstOfRow ? radius : smallRadius)
-
-      // 5 TOP LINE
-      path.addLine(to: CGPoint(x: radius, y: 0))
-
-      // 6 RADIUS TOP LEFT
-      path.addArc(
-        tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: 0, y: radius), radius: radius)
-
-      // 7 LEFT LINE
-      path.addLine(to: CGPoint(x: 0, y: height - radius))
-
-      // 8 RADIUS BOTTOM LEFT
-      path.addArc(
-        tangent1End: CGPoint(x: 0, y: height), tangent2End: CGPoint(x: radius, y: height),
-        radius: radius)
-
-      // 9 BOTTOM LINE
-      path.closeSubpath()
+  var systemImage: String {
+    switch self {
+    case .pending: return "clock"
+    case .sent: return "checkmark"
+    case .failed: return "exclamationmark.circle"
     }
+  }
 
-    //RIGHT BUBBLE
-    else {
-      // 1 START BOTTOM RIGHT
-      path.move(to: CGPoint(x: width - radius, y: height))
-
-      // 2 RADIUS BOTTOM RIGHT
-      path.addArc(
-        tangent1End: CGPoint(x: width, y: height),
-        tangent2End: CGPoint(x: width, y: height - radius), radius: radius)
-
-      // 3 RIGHT LINE
-      path.addLine(to: CGPoint(x: width, y: radius))
-
-      // 4 RADIUS TOP RIGHT
-      path.addArc(
-        tangent1End: CGPoint(x: width, y: 0), tangent2End: CGPoint(x: width - radius, y: 0),
-        radius: radius)
-
-      // 5 TOP LINE
-      path.addLine(to: CGPoint(x: radius, y: 0))
-
-      // 6 RADIUS TOP LEFT
-      path.addArc(
-        tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: 0, y: radius),
-        radius: firstOfRow ? radius : smallRadius)
-
-      // 7 LEFT LINE
-      path.addLine(to: CGPoint(x: 0, y: (height - radius) + (lastOfRow ? tipRadius : 0)))
-
-      // 8 RADIUS BOTTOM LEFT
-      path.addArc(
-        tangent1End: CGPoint(x: lastOfRow ? -tipRadius : 0, y: height),
-        tangent2End: CGPoint(x: radius, y: height), radius: lastOfRow ? tipRadius : smallRadius)
-
-      // 9 BOTTOM LINE
-      path.closeSubpath()
-
+  var inlineSystemImage: String? {
+    switch self {
+    case .pending: return "clock"
+    case .sent: return "checkmark"
+    case .failed: return nil
     }
-    return path
   }
 }
 
-struct Message: Identifiable {
-  let id = UUID()
-  var isFromCurrentUser: Bool
-  var content: String
-  var created_at: String
-  var state: Int
+struct ChatMessage: Identifiable, Hashable {
+  let id: String
+  let authorPublicKey: String
+  let content: String
+  let createdAt: Date
+  let deliveryState: ChatMessageDeliveryState
+  let errorMessage: String?
 
-  init(isFromCurrentUser: Bool, content: String, created_at: String, state: Int) {
-    self.isFromCurrentUser = isFromCurrentUser
+  init(
+    id: String,
+    authorPublicKey: String,
+    content: String,
+    createdAt: Date,
+    deliveryState: ChatMessageDeliveryState = .sent,
+    errorMessage: String? = nil
+  ) {
+    self.id = id
+    self.authorPublicKey = authorPublicKey
     self.content = content
-    self.created_at = created_at
-    self.state = state
+    self.createdAt = createdAt
+    self.deliveryState = deliveryState
+    self.errorMessage = errorMessage
   }
-}
-
-class ChatViewModel: ObservableObject {
-  @Published var messages: [Message]
-  @Published var messageStream: [(Bool, String, String)]
-
-  init(messages: [Message]) {
-    self.messages = messages
-    self.messageStream = messages.map { message in
-      return (message.isFromCurrentUser, message.content, message.created_at)
-    }
-  }
-
-  func sendMessage(isFromCurrentUser: Bool, content: String, created_at: String) {
-    let newMessage = Message(
-      isFromCurrentUser: isFromCurrentUser, content: content, created_at: created_at, state: 0)
-    messages.append(newMessage)
-    messageStream.append((newMessage.isFromCurrentUser, newMessage.content, newMessage.created_at))
-  }
-
 }
 
 struct BubblesView: View {
+  let messages: [ChatMessage]
+  let currentUserPublicKey: String
+  let peerPublicKey: String
+  let peerAvatarURL: URL?
+  let onNostrEventLinkTap: (NostrEventReference) -> Void
 
-  var avatarURL: URL
-
-  let viewModel = ChatViewModel(messages: messages)
-
-  let created_at: String = "\(Int(Date().timeIntervalSince1970))"
+  @Environment(\.modelContext) private var modelContext
+  @EnvironmentObject private var nostrData: NostrData
+  @State private var postPreviewsByEventID: [String: ChatPostPreview] = [:]
+  @State private var requestedPreviewIDs = Set<String>()
 
   var body: some View {
+    LazyVStack(spacing: 4) {
+      ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+        let isFromCurrentUser = message.authorPublicKey == currentUserPublicKey
+        let postPreview = postPreview(for: message)
 
-    ScrollView {
-      VStack {
-
-        ForEach(Array(viewModel.messages.enumerated()), id: \.1.id) { index, message in
-
-          // BUBBLE RIGHT
-          if message.isFromCurrentUser {
-            HStack(alignment: .bottom) {
-
-              Spacer()
-
-              //BUBBLE CONTAINER
-              VStack {
-                HStack(alignment: .bottom) {
-
-                  // CONTENT
-                  Text(message.content)
-                    .foregroundColor(.white)
-
-                  HStack(spacing: 0) {
-                    // CREATED AT
-                    //MomentConstructorBubble(timestamp: (message.created_at))
-                    Text(created_at)
-                      .font(.footnote)
-                      .foregroundColor(.primary.opacity(0.3))
-
-                    // SEND & RECEIPT CONFIRMATION
-                    Image(systemName: messageState(for: index))
-                      .font(.caption).bold()
-                      .foregroundColor(.primary.opacity(0.3))
-                  }
-                }
-              }
-              .padding(.horizontal, 12)
-              .padding(.top, 10)
-              .padding(.bottom, 12)
-              .background(
-                ChatBubbleShape(
-                  isFromCurrentUser: message.isFromCurrentUser, lastOfRow: lastOfRow(at: index),
-                  firstOfRow: firstOfRow(at: index)
-                )
-                .fill(Color.accentColor.opacity(0.9)))
+        VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 3) {
+          HStack(alignment: .bottom, spacing: 8) {
+            if isFromCurrentUser {
+              Spacer(minLength: 44)
+            } else {
+              peerAvatar(at: index)
             }
-            .padding(.leading, 50)
-            .padding(.bottom, lastOfRow(at: index) ? 10 : -3)
+
+            ChatBubble(
+              message: message,
+              isFromCurrentUser: isFromCurrentUser,
+              isFirstInGroup: isFirstInGroup(at: index),
+              isLastInGroup: isLastInGroup(at: index),
+              postPreview: postPreview,
+              onNostrEventLinkTap: onNostrEventLinkTap
+            )
+
+            if isFromCurrentUser, message.deliveryState == .failed {
+              failedDeliveryIcon(for: message)
+            }
+
+            if !isFromCurrentUser {
+              Spacer(minLength: 44)
+            }
           }
 
-          // BUBBLE LEFT
-          else {
-            HStack(alignment: .bottom) {
-
-              // SHOW PROFILE IF IS THE LAST OF THE ROW
-              if lastOfRow(at: index) {
-                AvatarView(url: avatarURL, size: 30)
-                  .offset(y: 10)
-              }
-
-              // SHOW SPACER TO FULLFILL EMPTINESS, weeeeeena
-              else {
-                Spacer().frame(width: 38)
-              }
-
-              //BUBBLE CONTAINER
-              VStack {
-                HStack(alignment: .bottom) {
-
-                  // CONTENT
-                  Text(message.content)
-                    .foregroundColor(.primary)
-
-                  // CREATED AT
-                  //MomentConstructorBubble(timestamp: (message.created_at))
-                  Text(created_at)
-                    .font(.footnote)
-                    .foregroundColor(.primary.opacity(0.3))
-
-                }
-              }
-
-              .padding(.horizontal, 12)
-              .padding(.top, 10)
-              .padding(.bottom, 12)
-              .background(
-                ChatBubbleShape(
-                  isFromCurrentUser: message.isFromCurrentUser, lastOfRow: lastOfRow(at: index),
-                  firstOfRow: firstOfRow(at: index)
-                )
-                //.blur(radius: 50)
-                .fill(Color.primary.opacity(0.1)))
-
-              Spacer()
-            }
-            .padding(.trailing, 50)
-            .padding(.bottom, lastOfRow(at: index) ? 10 : -3)
-
+          if isFromCurrentUser {
+            deliveryErrorText(for: message)
           }
         }
+        .padding(.bottom, isLastInGroup(at: index) ? 8 : 0)
       }
-      .textSelection(.enabled)
-      .padding()
-
     }
-
-    //.background(AnimatedBackgroundView(blur: 10))
-
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .task(id: previewRequestSignature) {
+      await prefetchMissingPostPreviews()
+    }
   }
 
-  // Conditions to show avatar
-  func firstOfRow(at index: Int) -> Bool {
-
-    if index == 0 {
-      return true  // If the first message, always show profile
-    }
-    let currentMessage = messages[index]
-    let previousMessage = messages[index - 1]
-
-    if currentMessage.isFromCurrentUser != previousMessage.isFromCurrentUser {
-      return true  // If the previous message is from a different user, show profile
-    }
-    return false  // Otherwise, do not show profile
-  }
-
-  //
-  func lastOfRow(at index: Int) -> Bool {
-
-    let currentMessage = messages[index]
-    let nextMessage = index < messages.count - 1 ? messages[index + 1] : nil
-
-    if currentMessage.isFromCurrentUser != nextMessage?.isFromCurrentUser {  // If the nex message is from other user
-      return true
+  @ViewBuilder
+  private func peerAvatar(at index: Int) -> some View {
+    if isLastInGroup(at: index) {
+      AvatarView(publicKey: peerPublicKey, url: peerAvatarURL, size: 30)
+        .offset(y: 4)
     } else {
+      Color.clear
+        .frame(width: 30, height: 30)
+    }
+  }
+
+  @ViewBuilder
+  private func failedDeliveryIcon(for message: ChatMessage) -> some View {
+    Image(systemName: message.deliveryState.systemImage)
+      .font(.system(size: 22, weight: .semibold))
+      .foregroundColor(Color(.systemRed))
+      .frame(width: 26, height: 26)
+      .padding(.bottom, 7)
+      .accessibilityLabel("Message not delivered")
+  }
+
+  @ViewBuilder
+  private func deliveryErrorText(for message: ChatMessage) -> some View {
+    if message.deliveryState == .failed {
+      Text(message.errorMessage ?? "Message could not be sent.")
+        .font(.caption.weight(.semibold))
+        .foregroundColor(Color(.systemRed))
+        .lineLimit(2)
+        .multilineTextAlignment(.trailing)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 280, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.trailing, 34)
+        .accessibilityLabel("Message not delivered. \(message.errorMessage ?? "Message could not be sent.")")
+    }
+  }
+
+  private func isFirstInGroup(at index: Int) -> Bool {
+    guard index > 0 else { return true }
+    return messages[index].authorPublicKey != messages[index - 1].authorPublicKey
+  }
+
+  private func isLastInGroup(at index: Int) -> Bool {
+    guard index < messages.count - 1 else { return true }
+    return messages[index].authorPublicKey != messages[index + 1].authorPublicKey
+  }
+
+  private func postPreview(for message: ChatMessage) -> ChatPostPreview? {
+    guard let reference = ChatNostrEventLinks.firstReference(in: message.content) else {
+      return nil
+    }
+
+    return postPreviewsByEventID[reference.id] ?? ChatPostPreview.unresolved(reference: reference)
+  }
+
+  private func postPreview(for item: FeedItem, reference: NostrEventReference) -> ChatPostPreview {
+    let profile = profile(for: item.pubkey)
+    return ChatPostPreview(
+      reference: reference,
+      authorPublicKey: item.pubkey,
+      authorDisplayName: displayName(for: item.pubkey, profile: profile),
+      excerpt: excerpt(from: item.content),
+      linkText: reference.canonicalLink,
+      isResolved: true
+    )
+  }
+
+  private func profile(for publicKey: String) -> RUserProfile? {
+    var descriptor = FetchDescriptor<RUserProfile>(
+      predicate: #Predicate { $0.publicKey == publicKey }
+    )
+    descriptor.fetchLimit = 1
+    return try? modelContext.fetch(descriptor).first
+  }
+
+  private var previewRequestSignature: String {
+    messages
+      .compactMap { ChatNostrEventLinks.firstReference(in: $0.content)?.id }
+      .joined(separator: "|")
+  }
+
+  @MainActor
+  private func prefetchMissingPostPreviews() async {
+    var references: [NostrEventReference] = []
+    var seenIDs = Set<String>()
+
+    for message in messages {
+      guard let reference = ChatNostrEventLinks.firstReference(in: message.content),
+        seenIDs.insert(reference.id).inserted
+      else {
+        continue
+      }
+
+      references.append(reference)
+    }
+
+    for reference in references.prefix(6) {
+      guard !requestedPreviewIDs.contains(reference.id),
+        postPreviewsByEventID[reference.id] == nil
+      else {
+        continue
+      }
+
+      requestedPreviewIDs.insert(reference.id)
+
+      if let cachedItem = nostrData.cachedTextNoteEvent(eventID: reference.id) {
+        postPreviewsByEventID[reference.id] = postPreview(for: cachedItem, reference: reference)
+        continue
+      }
+
+      if let remoteItem = await nostrData.fetchTextNoteEvent(reference: reference) {
+        postPreviewsByEventID[reference.id] = postPreview(for: remoteItem, reference: reference)
+      }
+    }
+  }
+
+  private func displayName(for publicKey: String, profile: RUserProfile?) -> String {
+    if let name = profile?.name, name.isValidName() {
+      return name
+    }
+
+    return (bech32_pubkey(publicKey) ?? publicKey).accordionString(index: 8)
+  }
+
+  private func excerpt(from content: String) -> String {
+    let trimmed = content
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "\n\n", with: "\n")
+
+    guard trimmed.count > 140 else { return trimmed }
+    return "\(trimmed.prefix(140))..."
+  }
+}
+
+private struct ChatPostPreview: Hashable {
+  let reference: NostrEventReference
+  let authorPublicKey: String
+  let authorDisplayName: String
+  let excerpt: String
+  let linkText: String
+  let isResolved: Bool
+
+  static func unresolved(reference: NostrEventReference) -> ChatPostPreview {
+    ChatPostPreview(
+      reference: reference,
+      authorPublicKey: "",
+      authorDisplayName: "Post Preview",
+      excerpt: "Tap to open this post.",
+      linkText: reference.canonicalLink,
+      isResolved: false
+    )
+  }
+}
+
+private struct ChatBubble: View {
+  let message: ChatMessage
+  let isFromCurrentUser: Bool
+  let isFirstInGroup: Bool
+  let isLastInGroup: Bool
+  let postPreview: ChatPostPreview?
+  let onNostrEventLinkTap: (NostrEventReference) -> Void
+
+  var body: some View {
+    VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
+      if !shouldHideMessageText {
+        Text(
+          ChatNostrEventLinks.attributedContent(
+            message.content,
+            linkColor: isFromCurrentUser ? .white : .accentColor
+          )
+        )
+          .font(.body)
+          .foregroundColor(isFromCurrentUser ? .white : .primary)
+          .textSelection(.enabled)
+          .environment(\.openURL, OpenURLAction { url in
+            guard let reference = NostrEventReference(url: url) else {
+              return .systemAction
+            }
+
+            onNostrEventLinkTap(reference)
+            return .handled
+          })
+      }
+
+      if let postPreview {
+        ChatPostPreviewCard(
+          preview: postPreview,
+          isFromCurrentUser: isFromCurrentUser,
+          action: {
+            onNostrEventLinkTap(postPreview.reference)
+          }
+        )
+      }
+
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(Self.timeFormatter.string(from: message.createdAt))
+          .font(.caption2)
+
+        if isFromCurrentUser, let inlineSystemImage = message.deliveryState.inlineSystemImage {
+          Image(systemName: inlineSystemImage)
+            .font(.caption2.weight(.semibold))
+        }
+      }
+      .foregroundColor(isFromCurrentUser ? .white.opacity(0.7) : .secondary)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(bubbleColor, in: bubbleShape)
+    .frame(maxWidth: 280, alignment: isFromCurrentUser ? .trailing : .leading)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var bubbleColor: Color {
+    isFromCurrentUser ? .accentColor : Color(.secondarySystemFill)
+  }
+
+  private var shouldHideMessageText: Bool {
+    postPreview != nil && ChatNostrEventLinks.isOnlyEventLink(message.content)
+  }
+
+  private var bubbleShape: UnevenRoundedRectangle {
+    UnevenRoundedRectangle(
+      topLeadingRadius: isFromCurrentUser || isFirstInGroup ? 18 : 8,
+      bottomLeadingRadius: isFromCurrentUser || isLastInGroup ? 18 : 8,
+      bottomTrailingRadius: isFromCurrentUser && !isLastInGroup ? 8 : 18,
+      topTrailingRadius: !isFromCurrentUser || isFirstInGroup ? 18 : 8,
+      style: .continuous
+    )
+  }
+
+  private static let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter
+  }()
+}
+
+private struct ChatPostPreviewCard: View {
+  let preview: ChatPostPreview
+  let isFromCurrentUser: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 7) {
+        HStack(spacing: 7) {
+          Image(systemName: "paperplane")
+            .font(.caption.weight(.semibold))
+
+          Text("Shared Post")
+            .font(.caption.weight(.semibold))
+        }
+        .foregroundColor(secondaryTextColor)
+
+        Text(preview.authorDisplayName)
+          .font(.caption.weight(.semibold))
+          .foregroundColor(primaryTextColor)
+          .lineLimit(1)
+
+        if preview.isResolved && !preview.excerpt.isEmpty {
+          Text(preview.excerpt)
+            .font(.subheadline)
+            .foregroundColor(primaryTextColor)
+            .lineLimit(4)
+            .multilineTextAlignment(.leading)
+        } else if !preview.isResolved {
+          Text(preview.excerpt)
+            .font(.subheadline)
+            .foregroundColor(secondaryTextColor)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+        }
+
+        Text(preview.linkText)
+          .font(.caption2.monospaced())
+          .foregroundColor(secondaryTextColor)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(10)
+      .background(cardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Open shared post")
+  }
+
+  private var cardBackground: Color {
+    isFromCurrentUser ? Color.white.opacity(0.18) : Color(.tertiarySystemFill)
+  }
+
+  private var primaryTextColor: Color {
+    isFromCurrentUser ? .white : .primary
+  }
+
+  private var secondaryTextColor: Color {
+    isFromCurrentUser ? .white.opacity(0.72) : .secondary
+  }
+}
+
+private enum ChatNostrEventLinks {
+  private static let bech32Characters = "023456789acdefghjklmnpqrstuvwxyz"
+
+  static func attributedContent(
+    _ content: String,
+    linkColor: Color
+  ) -> AttributedString {
+    var attributed = AttributedString(content)
+
+    for match in matches(in: content) {
+      guard let lowerBound = AttributedString.Index(match.range.lowerBound, within: attributed),
+        let upperBound = AttributedString.Index(match.range.upperBound, within: attributed),
+        let url = match.url
+      else {
+        continue
+      }
+
+      let attributedRange = lowerBound..<upperBound
+      attributed[attributedRange].font = .body.weight(.semibold)
+      attributed[attributedRange].foregroundColor = linkColor
+      attributed[attributedRange].link = url
+    }
+
+    return attributed
+  }
+
+  static func firstReference(in content: String) -> NostrEventReference? {
+    matches(in: content).first?.reference
+  }
+
+  static func isOnlyEventLink(_ content: String) -> Bool {
+    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let match = matches(in: trimmed).first,
+      match.range.lowerBound == trimmed.startIndex,
+      match.range.upperBound == trimmed.endIndex
+    else {
       return false
     }
+
+    return true
   }
 
-  func messageState(for state: Int) -> String {
-    if messages[state].state == 0 {
-      return "clock"
-    } else {
-      return "checkmark"
+  private static func matches(in content: String) -> [NostrEventLinkMatch] {
+    let pattern = "(?<![A-Za-z0-9_/:])(?:nostr:)?((?:note|nevent)1[\(bech32Characters)]+)"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+      return []
     }
+
+    let source = content as NSString
+    return regex
+      .matches(in: content, range: NSRange(location: 0, length: source.length))
+      .compactMap { result in
+        guard let range = Range(result.range, in: content) else { return nil }
+
+        let rawText = String(content[range])
+        guard let reference = NostrEventReference(rawValue: rawText) else {
+          return nil
+        }
+
+        let normalizedLink = rawText.lowercased().hasPrefix("nostr:")
+          ? rawText
+          : "nostr:\(rawText)"
+        let url = URL(string: normalizedLink) ?? reference.url
+
+        return NostrEventLinkMatch(range: range, reference: reference, url: url)
+      }
   }
 
-  func sendMessage() {
-    viewModel.sendMessage(isFromCurrentUser: false, content: "Hi there!", created_at: "1677955434")
+  private struct NostrEventLinkMatch {
+    let range: Range<String.Index>
+    let reference: NostrEventReference
+    let url: URL?
   }
-
 }
-let messages: [Message] = [
-  Message(isFromCurrentUser: true, content: "Sup?", created_at: "1679096310", state: 0),
-  Message(isFromCurrentUser: false, content: "Bae", created_at: "1647340900", state: 1),
-  Message(
-    isFromCurrentUser: false,
-    content: "I'm doing pretty well, thanks for asking. How was your day?",
-    created_at: "1647341000", state: 0),
-  Message(
-    isFromCurrentUser: false,
-    content: "Did you end up going to that new restaurant you were talking about?",
-    created_at: "1647341100", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "I'm really curious!", created_at: "1647341200", state: 0),
-  Message(
-    isFromCurrentUser: true,
-    content: "Yeah, I did! It was amazing. We should definitely try it out sometime.",
-    created_at: "1647341400", state: 0),
-  Message(
-    isFromCurrentUser: true, content: "I'll have to make a reservation soon.",
-    created_at: "1647341500", state: 0),
-  Message(
-    isFromCurrentUser: true, content: "So, what are you up to this weekend?",
-    created_at: "1647341600", state: 0),
-  Message(isFromCurrentUser: false, content: "Any plans?", created_at: "1647341700", state: 0),
-  Message(
-    isFromCurrentUser: true,
-    content:
-      "Actually, I was thinking of going to the beach. It's been a while since I've been there.",
-    created_at: "1647341900", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "Oh, that sounds like fun! What day were you thinking?",
-    created_at: "1647342000", state: 0),
-  Message(
-    isFromCurrentUser: true,
-    content: "How about Sunday? The weather is supposed to be really nice.",
-    created_at: "1647342100", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "I'm down for that! What time should we meet?",
-    created_at: "1647342200", state: 0),
-  Message(
-    isFromCurrentUser: true, content: "Let's say around noon. We can grab some lunch on the way.",
-    created_at: "1647342400", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "Sounds perfect. Can't wait!", created_at: "1647342500",
-    state: 0),
-  Message(
-    isFromCurrentUser: false,
-    content: "By the way, have you seen the new movie that just came out?",
-    created_at: "1647342600", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "I heard it's really good!", created_at: "1647342700",
-    state: 0),
-  Message(
-    isFromCurrentUser: true,
-    content: "Yeah, I did! It was amazing. We should definitely try it out sometime.",
-    created_at: "1647341400", state: 0),
-  Message(
-    isFromCurrentUser: true, content: "I'll have to make a reservation soon.",
-    created_at: "1647341500", state: 0),
-  Message(
-    isFromCurrentUser: true, content: "So, what are you up to this weekend?",
-    created_at: "1647341600", state: 0),
-  Message(
-    isFromCurrentUser: false, content: "We should go see it sometime.", created_at: "1647342800",
-    state: 0),
-]

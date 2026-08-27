@@ -1,5 +1,6 @@
 // a
 
+import Combine
 import KeychainSwift
 /// Keychain Swift Library for safe key storage
 import SwiftUI
@@ -8,87 +9,217 @@ import SwiftUI
 
 class KeyManager: ObservableObject {
 
+  private static let storedKeysIndexKey = "keys"
+  private static let selectedKeychainKey = "selectedKey"
+
   /// Data structure for key in keychain
-  @Published var storedKeys: [String] = []
-  @Published var selectedKey: String = ""
+  let objectWillChange = ObservableObjectPublisher()
+
+  private(set) var storedKeys: [String] = []
+  private(set) var selectedKey: String = ""
+  private(set) var pendingKeypair: Keypair = generate_new_keypair()
 
   /// Initialize KeychainSwift instance
   private let keychain = KeychainSwift()
 
+  init() {
+    loadKeys()
+  }
+
   /// Check if a String is a valid bech 32 encoded key
   func isValidBech32EncodedKey(_ key: String) -> Bool {
-    let keyTrimmed = key.replacingOccurrences(of: " ", with: "").lowercased()
-    /// Delete blank spaces and lowercase the string before decoding
-    if decode_bech32_key(keyTrimmed) != nil {
-      return true
-    } else {
-      return false
-    }
+    normalizedKey(key) != nil
   }
 
   /// Delete all keys from keychain and update de list
   func deleteAllKeys() {
-    storedKeys.removeAll()
-    keychain.clear()
+    for key in storedKeys {
+      keychain.delete(key)
+    }
+    keychain.delete(Self.storedKeysIndexKey)
+    keychain.delete(Self.selectedKeychainKey)
+
+    objectWillChange.send()
+    storedKeys = []
+    selectedKey = ""
   }
 
   /// Delete a key from the keychain and the storedKeys published object array
   func deleteKey(_ key: String) {
-    /// Remove the key from the storedKeys array
-    if let index = storedKeys.firstIndex(of: key) {
-      storedKeys.remove(at: index)
-    }
+    let updatedKeys = storedKeys.filter { $0 != key }
+    let updatedSelectedKey = selectedKey == key ? updatedKeys.first ?? "" : selectedKey
+
     /// Remove the key from the keychain
     keychain.delete(key)
     /// Update the storedKeys array in the keychain
-    keychain.set(storedKeys.map { $0 }.joined(separator: ","), forKey: "keys")
+    persistStoredKeysIndex(updatedKeys)
+
+    if updatedSelectedKey.isEmpty {
+      keychain.delete(Self.selectedKeychainKey)
+    } else {
+      keychain.set(updatedSelectedKey, forKey: Self.selectedKeychainKey)
+    }
+
+    objectWillChange.send()
+    storedKeys = updatedKeys
+    selectedKey = updatedSelectedKey
   }
 
   /// Load stored keys
   func loadKeys() {
-    let keys = keychain.allKeys.filter { $0 != "keys" }
-    storedKeys = keys
+    let loadedKeys: [String]
+    if let serializedKeys = keychain.get(Self.storedKeysIndexKey), !serializedKeys.isEmpty {
+      loadedKeys = serializedKeys
+        .split(separator: ",")
+        .map(String.init)
+        .filter { normalizedKey($0) != nil }
+    } else {
+      loadedKeys = keychain.allKeys
+        .filter { $0 != Self.storedKeysIndexKey && $0 != Self.selectedKeychainKey }
+        .filter { normalizedKey($0) != nil }
+    }
+
+    persistStoredKeysIndex(loadedKeys)
+
+    let loadedSelectedKey: String
+    if let selectedKey = keychain.get(Self.selectedKeychainKey),
+      loadedKeys.contains(selectedKey)
+    {
+      loadedSelectedKey = selectedKey
+    } else {
+      loadedSelectedKey = loadedKeys.first ?? ""
+      if loadedSelectedKey.isEmpty {
+        keychain.delete(Self.selectedKeychainKey)
+      } else {
+        keychain.set(loadedSelectedKey, forKey: Self.selectedKeychainKey)
+      }
+    }
+
+    objectWillChange.send()
+    storedKeys = loadedKeys
+    self.selectedKey = loadedSelectedKey
   }
 
   /// Store keys in keychain as a single string
-  func saveKey(_ key: String) {
+  @discardableResult
+  func saveKey(_ key: String) -> Bool {
     /// Delete empty spaces, and lowercase the string
-    let newKey = key.replacingOccurrences(of: " ", with: "").lowercased()
-    /// Check if lenght is valid
-    if newKey.count == 63 {
-      /// Decode key to trim in npub or nsec case
-      if let decoded = decode_bech32_key(newKey) {
-        if case .sec(let privKeyHex) = decoded {
-          /// Decoding private key bech32 to hex
-          let publicKeyHex = privkey_to_pubkey(privkey: privKeyHex)
-          /// Building a full keypair from decoded private key
-          let keypair = Keypair(pubkey: publicKeyHex!, privkey: privKeyHex)
-          /// Declaring string data
-          let publicKey = keypair.pubkey_bech32
-          let privateKey = keypair.privkey_bech32!
-        }
-        /// Check to avoid duplication
-        if !storedKeys.contains(where: { $0 == newKey }) {
-          /// Append new key to the keys array
-          storedKeys.append(newKey)
-          /// Saves new key as a string in the keychain under the key "keys"
-          keychain.set(true, forKey: newKey)
-          /// Saves the list of publicKeys in the keys array as a comma-separated string in the keychain under the key "keys"
-          keychain.set(storedKeys.map { $0 }.joined(separator: ","), forKey: "keys")
-          loadKeys()
-        } else {
-          /// Duplicated public key
-          print("Key already exist")
-          return
-        }
+    guard let newKey = normalizedKey(key) else {
+      print("Invalid key")
+      return false
+    }
 
-      } else {
-        /// Handle invalid key
-        print("Invalid key")
-        return
-      }
+    var updatedKeys = storedKeys
+
+    /// Check to avoid duplication
+    if !updatedKeys.contains(where: { $0 == newKey }) {
+      /// Append new key to the keys array
+      updatedKeys.append(newKey)
+      /// Saves the new key as a value under its own keychain key
+      keychain.set(newKey, forKey: newKey)
     } else {
+      /// Duplicated public key
+      print("Key already exist")
+    }
+
+    persistStoredKeysIndex(updatedKeys)
+    keychain.set(newKey, forKey: Self.selectedKeychainKey)
+
+    objectWillChange.send()
+    storedKeys = updatedKeys
+    selectedKey = newKey
+    return true
+  }
+
+  func selectKey(_ key: String) {
+    guard !key.isEmpty else {
+      keychain.delete(Self.selectedKeychainKey)
+      objectWillChange.send()
+      selectedKey = ""
       return
     }
+
+    guard storedKeys.contains(key) else { return }
+    keychain.set(key, forKey: Self.selectedKeychainKey)
+    objectWillChange.send()
+    selectedKey = key
+  }
+
+  func normalizedKey(_ key: String) -> String? {
+    let normalized = key
+      .components(separatedBy: .whitespacesAndNewlines)
+      .joined()
+      .lowercased()
+    guard normalized.count == 63, let decoded = decode_bech32_key(normalized) else {
+      return nil
+    }
+
+    if case .sec(let privKeyHex) = decoded,
+      privkey_to_pubkey(privkey: privKeyHex) == nil
+    {
+      return nil
+    }
+
+    return normalized
+  }
+
+  func isStored(_ key: String) -> Bool {
+    guard let normalized = normalizedKey(key) else { return false }
+    return storedKeys.contains(normalized)
+  }
+
+  func privateKeyHex(for key: String) -> String? {
+    guard let normalized = normalizedKey(key),
+      let decoded = decode_bech32_key(normalized)
+    else {
+      return nil
+    }
+
+    if case .sec(let privateKeyHex) = decoded {
+      return privateKeyHex
+    }
+
+    return nil
+  }
+
+  var selectedPrivateKeyHex: String? {
+    privateKeyHex(for: selectedKey)
+  }
+
+  func publicKeyHex(for key: String) -> String? {
+    PublicKeyIdentity.publicKeyHex(from: key)
+  }
+
+  func regeneratePendingKeypair() {
+    objectWillChange.send()
+    pendingKeypair = generate_new_keypair()
+  }
+
+  var pendingPublicKey: String {
+    pendingKeypair.pubkey_bech32
+  }
+
+  func publicKey(for key: String) -> String? {
+    guard let publicKeyHex = publicKeyHex(for: key) else { return nil }
+    return bech32_pubkey(publicKeyHex) ?? publicKeyHex
+  }
+
+  func keyKindDescription(for key: String) -> String {
+    guard let normalized = normalizedKey(key),
+      let decoded = decode_bech32_key(normalized)
+    else {
+      return "Invalid key"
+    }
+
+    switch decoded {
+    case .pub:
+      return "Public Key"
+    case .sec:
+      return "Private Key"
+    }
+  }
+
+  private func persistStoredKeysIndex(_ keys: [String]? = nil) {
+    keychain.set((keys ?? storedKeys).joined(separator: ","), forKey: Self.storedKeysIndexKey)
   }
 }

@@ -17,6 +17,7 @@ ExportOptions.plist
 xcuserdata/
 
 ## Other
+.DS_Store
 *.moved-aside
 *.xccheckout
 *.xcscmblueprint

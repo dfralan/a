@@ -1,374 +1,538 @@
-import RealmSwift
+// a
+
+import SwiftData
 import SwiftUI
 
-class RelayItem: Object, Identifiable {
-  @objc dynamic var id = UUID().uuidString
-  @objc dynamic var address = ""
-  @objc dynamic var state = ""
+@Model
+class RelayItem: Identifiable {
+  @Attribute(.unique) var id = UUID().uuidString
+  var address = ""
+  var state = StoredRelays.activeState
 
-  override static func primaryKey() -> String? {
-    return "id"
+  init(id: String = UUID().uuidString, address: String = "", state: String = StoredRelays.activeState) {
+    self.id = id
+    self.address = address
+    self.state = state
   }
 }
 
 class StoredRelays: ObservableObject {
-  private let realm = try! Realm()
-  @Published var relayItems: Results<RelayItem> = try! Realm().objects(RelayItem.self)
+  static let activeState = "active"
+  static let inactiveState = "inactive"
 
-  func addItem(address: String, state: String) {
-    guard !address.isEmpty else {
+  private static let didBootstrapDefaultRelaysKey = "storedRelays.didBootstrapDefaultRelays"
+  private static let persistedRelayItemsKey = "storedRelays.items.v1"
+
+  private let modelContext: ModelContext
+  @Published var relayItems: [RelayItem] = []
+
+  private struct PersistedRelayItem: Codable, Equatable {
+    var id: String
+    var address: String
+    var state: String
+
+    init(id: String = UUID().uuidString, address: String, state: String) {
+      self.id = id
+      self.address = address
+      self.state = state
+    }
+
+    init(_ item: RelayItem) {
+      self.id = item.id
+      self.address = item.address
+      self.state = item.state
+    }
+  }
+
+  init(modelContainer: ModelContainer) {
+    self.modelContext = ModelContext(modelContainer)
+    loadData()
+  }
+
+  var activeRelayAddresses: [String] {
+    relayItems
+      .filter { isActive($0) }
+      .compactMap { normalizedRelayAddress($0.address) }
+  }
+
+  var activeRelayCount: Int {
+    activeRelayAddresses.count
+  }
+
+  func ensureDefaultRelays() {
+    loadData()
+
+    guard !hasPersistedRelaySnapshot, relayItems.isEmpty else {
+      return
+    }
+
+    for relay in NostrData.defaultRelayURLs {
+      addItem(address: relay, state: Self.activeState)
+    }
+
+    UserDefaults.standard.set(true, forKey: Self.didBootstrapDefaultRelaysKey)
+    loadData()
+  }
+
+  @discardableResult
+  func addItem(address: String, state: String = StoredRelays.activeState) -> Bool {
+    loadData()
+
+    guard let normalizedAddress = normalizedRelayAddress(address) else {
       loadData()
-      return
+      return false
     }
 
-    // Check if an item with the same address already exists
-    let itemExists = relayItems.contains { $0.address == address }
-    guard !itemExists else {
-      // An item with the same address already exists
-      // You can handle this scenario as per your requirement
-      // For example, show an error message or perform an update instead of adding a new item
-      print("Relay with address '\(address)' already exists")
-      return
+    guard !relayItems.contains(where: { $0.address == normalizedAddress }) else {
+      loadData()
+      return false
     }
 
-    let item = RelayItem()
-    item.address = address
-    item.state = state
+    let item = RelayItem(address: normalizedAddress, state: sanitizedState(state))
+    modelContext.insert(item)
+    try? modelContext.save()
+    savePersistedRelayItems((relayItems + [item]).map(PersistedRelayItem.init))
+    loadData()
+    return true
+  }
 
-    try! realm.write {
-      realm.add(item)
+  func deleteItems(withIDs ids: [String]) {
+    for item in relayItems where ids.contains(item.id) {
+      modelContext.delete(item)
     }
-
+    try? modelContext.save()
+    savePersistedRelayItems(
+      relayItems
+        .filter { !ids.contains($0.id) }
+        .map(PersistedRelayItem.init)
+    )
     loadData()
   }
 
-  func deleteItem(item: RelayItem) {
-    try! realm.write {
-      realm.delete(item)
-    }
+  func setActive(_ isActive: Bool, for item: RelayItem) {
+    item.state = isActive ? Self.activeState : Self.inactiveState
+    try? modelContext.save()
+    savePersistedRelayItems(relayItems.map(PersistedRelayItem.init))
     loadData()
   }
 
-  func updateItem(item: RelayItem, address: String, state: String) {
-    try! realm.write {
-      item.address = address
-      item.state = state
-    }
-    loadData()
+  func isActive(_ item: RelayItem) -> Bool {
+    item.state != Self.inactiveState
   }
 
   func loadData() {
-    relayItems = realm.objects(RelayItem.self)
+    let descriptor = FetchDescriptor<RelayItem>(
+      sortBy: [SortDescriptor(\.address, order: .forward)]
+    )
+
+    do {
+      let fetchedItems = try modelContext.fetch(descriptor)
+      let sanitizedItems = sanitizedRelayItems(from: fetchedItems)
+
+      if let persistedItems = loadPersistedRelayItems() {
+        let normalizedPersistedItems = sanitizedPersistedRelayItems(from: persistedItems)
+        if normalizedPersistedItems != persistedItems {
+          savePersistedRelayItems(normalizedPersistedItems)
+        }
+
+        relayItems = mirrorPersistedRelays(normalizedPersistedItems, fetchedItems: sanitizedItems)
+      } else {
+        relayItems = sanitizedItems
+        if !sanitizedItems.isEmpty {
+          savePersistedRelayItems(sanitizedItems.map(PersistedRelayItem.init))
+        }
+      }
+    } catch {
+      print("Error loading relay items: \(error)")
+      relayItems = []
+    }
   }
 
   func deleteAllItems() {
-    try! realm.write {
-      realm.deleteAll()
+    for item in relayItems {
+      modelContext.delete(item)
     }
+    try? modelContext.save()
+    savePersistedRelayItems([])
     loadData()
+  }
+
+  func normalizedRelayAddress(_ address: String) -> String? {
+    var trimmed = address
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: " ", with: "")
+      .lowercased()
+
+    if trimmed.hasPrefix("https://") {
+      trimmed = "wss://" + trimmed.dropFirst("https://".count)
+    } else if trimmed.hasPrefix("http://") || trimmed.hasPrefix("ws://") {
+      return nil
+    } else if !trimmed.hasPrefix("wss://") {
+      trimmed = "wss://" + trimmed
+    }
+
+    guard let url = URL(string: trimmed),
+      url.scheme == "wss",
+      url.host != nil
+    else {
+      return nil
+    }
+
+    var normalized = url.absoluteString
+    if url.path == "/" && normalized.hasSuffix("/") {
+      normalized.removeLast()
+    }
+    return normalized
+  }
+
+  private func sanitizedRelayItems(from fetchedItems: [RelayItem]) -> [RelayItem] {
+    var seenAddresses = Set<String>()
+    var sanitizedItems: [RelayItem] = []
+    var didMutate = false
+
+    for item in fetchedItems {
+      guard let normalizedAddress = normalizedRelayAddress(item.address) else {
+        modelContext.delete(item)
+        didMutate = true
+        continue
+      }
+
+      guard !seenAddresses.contains(normalizedAddress) else {
+        modelContext.delete(item)
+        didMutate = true
+        continue
+      }
+
+      seenAddresses.insert(normalizedAddress)
+      if item.address != normalizedAddress {
+        item.address = normalizedAddress
+        didMutate = true
+      }
+      sanitizedItems.append(item)
+    }
+
+    if didMutate {
+      try? modelContext.save()
+    }
+
+    return sanitizedItems.sorted { $0.address < $1.address }
+  }
+
+  private func loadPersistedRelayItems() -> [PersistedRelayItem]? {
+    guard hasPersistedRelaySnapshot else {
+      return nil
+    }
+
+    guard let data = UserDefaults.standard.data(forKey: Self.persistedRelayItemsKey) else {
+      return []
+    }
+
+    return (try? JSONDecoder().decode([PersistedRelayItem].self, from: data)) ?? []
+  }
+
+  private var hasPersistedRelaySnapshot: Bool {
+    UserDefaults.standard.object(forKey: Self.persistedRelayItemsKey) != nil
+  }
+
+  private func savePersistedRelayItems(_ items: [PersistedRelayItem]) {
+    let sanitizedItems = sanitizedPersistedRelayItems(from: items)
+    guard let data = try? JSONEncoder().encode(sanitizedItems) else {
+      return
+    }
+
+    UserDefaults.standard.set(data, forKey: Self.persistedRelayItemsKey)
+    UserDefaults.standard.set(true, forKey: Self.didBootstrapDefaultRelaysKey)
+  }
+
+  private func sanitizedPersistedRelayItems(from items: [PersistedRelayItem]) -> [PersistedRelayItem] {
+    var seenAddresses = Set<String>()
+    var sanitizedItems: [PersistedRelayItem] = []
+
+    for item in items {
+      guard let normalizedAddress = normalizedRelayAddress(item.address),
+        !seenAddresses.contains(normalizedAddress)
+      else {
+        continue
+      }
+
+      seenAddresses.insert(normalizedAddress)
+      sanitizedItems.append(
+        PersistedRelayItem(
+          id: item.id.isEmpty ? UUID().uuidString : item.id,
+          address: normalizedAddress,
+          state: sanitizedState(item.state)
+        )
+      )
+    }
+
+    return sanitizedItems.sorted { $0.address < $1.address }
+  }
+
+  private func mirrorPersistedRelays(
+    _ persistedItems: [PersistedRelayItem],
+    fetchedItems: [RelayItem]
+  ) -> [RelayItem] {
+    var didMutate = false
+    var mirroredItems: [RelayItem] = []
+    var fetchedByID = Dictionary(uniqueKeysWithValues: fetchedItems.map { ($0.id, $0) })
+    let fetchedByAddress = Dictionary(fetchedItems.map { ($0.address, $0) }, uniquingKeysWith: { first, _ in first })
+
+    for persistedItem in persistedItems {
+      let item = fetchedByID[persistedItem.id] ?? fetchedByAddress[persistedItem.address]
+
+      if let item {
+        if item.id != persistedItem.id {
+          item.id = persistedItem.id
+          didMutate = true
+        }
+
+        if item.address != persistedItem.address {
+          item.address = persistedItem.address
+          didMutate = true
+        }
+
+        if item.state != persistedItem.state {
+          item.state = persistedItem.state
+          didMutate = true
+        }
+
+        fetchedByID[persistedItem.id] = item
+        mirroredItems.append(item)
+      } else {
+        let newItem = RelayItem(
+          id: persistedItem.id,
+          address: persistedItem.address,
+          state: persistedItem.state
+        )
+        modelContext.insert(newItem)
+        mirroredItems.append(newItem)
+        didMutate = true
+      }
+    }
+
+    let persistedIDs = Set(persistedItems.map(\.id))
+    for fetchedItem in fetchedItems where !persistedIDs.contains(fetchedItem.id) {
+      modelContext.delete(fetchedItem)
+      didMutate = true
+    }
+
+    if didMutate {
+      try? modelContext.save()
+    }
+
+    return mirroredItems.sorted { $0.address < $1.address }
+  }
+
+  private func sanitizedState(_ state: String) -> String {
+    state == Self.inactiveState ? Self.inactiveState : Self.activeState
+  }
+}
+
+private enum RelayManagerAlert: Identifiable {
+  case deleteLastRelays([String])
+  case deleteAllRelays
+  case deactivateLastRelay
+
+  var id: String {
+    switch self {
+    case .deleteLastRelays: return "deleteLastRelays"
+    case .deleteAllRelays: return "deleteAllRelays"
+    case .deactivateLastRelay: return "deactivateLastRelay"
+    }
   }
 }
 
 struct RelayManager: View {
+  @ObservedObject var storedRelays: StoredRelays
 
-  @State private var showDeleteAllConfirmationAlert = false
-  @ObservedObject var storedRelays = StoredRelays()
   @State private var newAddress = ""
+  @State private var alert: RelayManagerAlert?
 
-  @State private var editing: Bool = false
+  init(storedRelays: StoredRelays = NostrData.shared.storedRelays) {
+    self._storedRelays = ObservedObject(initialValue: storedRelays)
+  }
+
   var body: some View {
     NavigationStack {
-      VStack(spacing: 20) {
-        // Textfield
-        HStack {
-          HStack {
-            TextField("Add a relay URL", text: $newAddress)
+      Form {
+        Section {
+          HStack(spacing: 8) {
+            TextField("wss://relay.example.com", text: $newAddress)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
 
             if !newAddress.isEmpty {
               Button {
-                self.newAddress = ""
+                newAddress = ""
               } label: {
-                Image(systemName: "delete.left")
-                  .foregroundColor(.accentColor)
+                Image(systemName: "xmark.circle.fill")
+                  .foregroundColor(.secondary)
               }
-            }
-          }.RoundedThinStyle()
-
-          Button(action: {
-
-            var urlStrings: [String]
-
-            if newAddress.contains(",") {
-              urlStrings = newAddress.components(separatedBy: ",").map {
-                $0.trimmingCharacters(in: .whitespaces)
-              }
-            } else {
-              urlStrings = [newAddress.trimmingCharacters(in: .whitespaces)]
+              .buttonStyle(.borderless)
             }
 
-            urlStrings.forEach { urlString in
-              let trimmedUrlString = urlString.replacingOccurrences(of: " ", with: "").lowercased()
-
-              if !trimmedUrlString.hasPrefix("wss://") {
-                print("Invalid URL: \(trimmedUrlString)")
-              } else {
-                if let encodedUrlString = trimmedUrlString.addingPercentEncoding(
-                  withAllowedCharacters: .urlQueryAllowed),
-                  let url = URLComponents(string: encodedUrlString)?.url
-                {
-                  storedRelays.addItem(address: url.absoluteString, state: "plugged")
-                } else {
-                  // Handle invalid URL scenario
-                  print("Invalid URL: \(trimmedUrlString)")
-                }
-              }
+            Button {
+              addRelays()
+            } label: {
+              Image(systemName: "plus.circle.fill")
             }
-
-            newAddress = ""
-
-          }) {
-            Image(systemName: "plus")
-              .font(.headline)
-
+            .buttonStyle(.borderless)
+            .disabled(newAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
           }
+        } header: {
+          Text("Add Relay")
+        } footer: {
+          Text("Paste one relay, or several separated by commas.")
         }
 
-        // ALL RELAYS
-        ScrollView {
-          VStack(spacing: 20) {
-            ForEach(storedRelays.relayItems) { item in
-
-              //RELAY
-              HStack(spacing: 15) {
-
-                if !editing {
-                  Button {
-
-                  } label: {
-                    Image(systemName: "checkmark.circle.fill")
-                      .font(.subheadline)
+        Section {
+          if storedRelays.relayItems.isEmpty {
+            Label("No relays saved", systemImage: "antenna.radiowaves.left.and.right")
+              .foregroundColor(.secondary)
+          } else {
+            ForEach(storedRelays.relayItems, id: \.id) { item in
+              Toggle(
+                isOn: Binding(
+                  get: { storedRelays.isActive(item) },
+                  set: { isActive in
+                    setRelay(item, active: isActive)
                   }
-
-                  // PENDANTS
-                  Button {
-                  } label: {
-                    HStack {
-                      ZStack {
-                        Image(systemName: "figure.run")
-                          .offset(x: -5)
-                          .opacity(0.25)
-                        Image(systemName: "figure.run")
-                          .opacity(0.5)
-                        Image(systemName: "figure.run")
-                          .offset(x: 5)
-                      }
-                      Text("-")
-                    }
-
-                  }.saturation(item.state == "plugged" ? 1 : 0)
-                  Spacer()
-                }
-                // GO FURTHER
-                NavigationLink(
-                  destination: RelayItemDetailView(storedRelays: storedRelays, item: item)
-                ) {
-                  HStack {
-                    Text(item.address)
-                      .saturation(item.state == "plugged" ? 1 : 0)
-                      .lineLimit(1)
-                    Image(systemName: "chevron.right")
-                  }
-                }
-
-                if editing {
-                  Spacer()
-
-                  // COPY RELAY URL
-                  Button {
-                    UIPasteboard.general.string = item.address
-                  } label: {
-                    Image(systemName: "square.on.square")
-                  }
-
-                  // DELETE
-                  Button(role: .destructive) {
-                    withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2))
-                    {
-                      storedRelays.deleteItem(item: item)
-                      storedRelays.loadData()
-                    }
-                  } label: {
-                    Image(systemName: "trash")
-                  }
-
+                )
+              ) {
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(item.address)
+                    .lineLimit(1)
+                  Text(storedRelays.isActive(item) ? "Active" : "Inactive")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
               }
-              Divider()
+              .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                  requestDeleteRelay(item)
+                } label: {
+                  Label("Delete", systemImage: "trash")
+                }
+              }
             }
-            if storedRelays.relayItems.count > 1 && editing {
-
-              Button {
-                UIPasteboard.general.string =
-                  (storedRelays.relayItems.map { $0.address }.sorted().joined(separator: ", "))
-              } label: {
-                Text("Copy All")
-                Spacer()
-                Image(systemName: "square.on.square")
-              }
-
-              Divider()
-
-              Button(role: .destructive) {
-                showDeleteAllConfirmationAlert = true
-              } label: {
-                Text("Delete All")
-                Spacer()
-                Image(systemName: "trash")
-              }
-
-            }
-
-            Spacer()
           }
-          .onAppear {
-            storedRelays.loadData()
-            print("loading data")
-          }
+        } header: {
+          Text("Relays")
+        } footer: {
+          Text("Active relays are used to read and publish events.")
         }
-        Spacer()
-      }
-    }
-    .padding()
-
-    // HIDE KEYBOARD WHEN TAP OUTSIDE THE TEXTFIELD
-    .onTapGesture {
-      UIApplication.shared.sendAction(
-        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-    .toolbar {
-      ToolbarItem(placement: .principal) {
-
-        Text("Relay Manager")
-      }
-      ToolbarItem(placement: .navigationBarTrailing) {
 
         if !storedRelays.relayItems.isEmpty {
-          Button {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)) {
-              editing.toggle()
+          Section {
+            Button {
+              UIPasteboard.general.string =
+                storedRelays.relayItems.map(\.address).sorted().joined(separator: ", ")
+              EfimerousManager.shared.showMessage("Copied")
+            } label: {
+              Label("Copy All Relays", systemImage: "doc.on.doc")
             }
-          } label: {
-            Text(editing ? "Done" : "Edit")
-          }
-        }
-      }
-    }
-    .alert(isPresented: $showDeleteAllConfirmationAlert) {
-      Alert(
-        title: Text("Confirmation"),
-        message: Text("Are you sure you want to delete all relays?"),
-        primaryButton: .destructive(Text("Delete All")) {
-          storedRelays.deleteAllItems()
-        },
-        secondaryButton: .cancel()
-      )
-    }
 
-  }
-}
-
-struct RelayItemDetailView: View {
-  let supportedNips = [
-    "01", "02", "04", "09", "11", "12", "15", "16", "20", "22", "26", "28", "11", "12",
-  ]
-  @Environment(\.presentationMode) var presentationMode
-  @ObservedObject var storedRelays: StoredRelays
-  @StateObject var item: RelayItem
-  @State private var editItemAddress = ""
-
-  var body: some View {
-    Form {
-      HStack(alignment: .firstTextBaseline) {
-        NavigationLink(destination: RelaysView()) {
-          Text("Admin")
-          Spacer()
-          HStack {
-            AvatarView(size: 30)
-            VStack(alignment: .leading) {
-              usernameView(username: "Fer", nip05: "nostr.ar", extended: false)
+            Button(role: .destructive) {
+              alert = .deleteAllRelays
+            } label: {
+              Label("Delete All Relays", systemImage: "trash")
             }
           }
         }
       }
-      TextField("Item address", text: $editItemAddress)
-      DisclosureGroup {
-        WrappingHStack(horizontalSpacing: 12) {
+      .navigationTitle("Relays")
+      .navigationBarTitleDisplayMode(.inline)
+      .onAppear {
+        storedRelays.ensureDefaultRelays()
+      }
+      .alert(item: $alert) { alert in
+        switch alert {
+        case .deactivateLastRelay:
+          return Alert(
+            title: Text("Keep One Relay Active?"),
+            message: Text("Without an active relay, the feed cannot receive new events."),
+            dismissButton: .default(Text("OK"))
+          )
 
-          ForEach(supportedNips, id: \.self) { nip in
+        case .deleteLastRelays(let ids):
+          return Alert(
+            title: Text("Delete Last Active Relay?"),
+            message: Text("Without an active relay, the feed cannot receive events until you add or enable one again."),
+            primaryButton: .destructive(Text("Delete")) {
+              storedRelays.deleteItems(withIDs: ids)
+              NostrData.shared.disconnect()
+            },
+            secondaryButton: .cancel()
+          )
 
-            Text(nip)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 2)
-              .background(.thinMaterial)
-              .foregroundColor(.primary)
-              .cornerRadius(5)
-              .font(.subheadline)
-          }
+        case .deleteAllRelays:
+          return Alert(
+            title: Text("Delete All Relays?"),
+            message: Text("Without relays, the feed cannot receive events until you add one again."),
+            primaryButton: .destructive(Text("Delete All")) {
+              storedRelays.deleteAllItems()
+              NostrData.shared.disconnect()
+            },
+            secondaryButton: .cancel()
+          )
         }
-
-      } label: {
-        Text("Supported NIPS")
-
-      }
-      .transaction { transaction in
-        transaction.animation = .spring(response: 0.2, dampingFraction: 0.7, blendDuration: 0.2)
-      }
-      HStack {
-        Text("Version")
-        Spacer()
-        Text("v78-30b8c38")
-          .lineLimit(1)
-
-      }
-
-      Spacer()
-
-      Button("Delete") {
-        storedRelays.deleteItem(item: item)
-        presentationMode.wrappedValue.dismiss()
-      }
-      .padding()
-    }
-    .onAppear {
-      editItemAddress = item.address
-    }
-
-    .toolbar {
-      ToolbarItem(placement: .navigationBarTrailing) {
-
-        Button {
-          if editItemAddress.isEmpty {
-            //Empty address
-            editItemAddress = item.address
-          } else {
-            storedRelays.updateItem(item: item, address: editItemAddress, state: item.state)
-            presentationMode.wrappedValue.dismiss()
-          }
-
-        } label: {
-          Text("Save")
-        }
-
-      }
-      ToolbarItem(placement: .principal) {
-        Text(item.address)
       }
     }
+  }
 
+  private func addRelays() {
+    let relayStrings = newAddress
+      .split(separator: ",")
+      .map { String($0) }
+
+    var didAddRelay = false
+    for relay in relayStrings {
+      didAddRelay = storedRelays.addItem(address: relay) || didAddRelay
+    }
+
+    if didAddRelay {
+      NostrData.shared.bootstrapConfiguredRelays()
+      newAddress = ""
+    } else {
+      EfimerousManager.shared.showMessage("Enter a valid wss relay")
+    }
+  }
+
+  private func setRelay(_ item: RelayItem, active: Bool) {
+    if !active && storedRelays.isActive(item) && storedRelays.activeRelayCount <= 1 {
+      alert = .deactivateLastRelay
+      return
+    }
+
+    storedRelays.setActive(active, for: item)
+
+    if active {
+      NostrData.shared.bootstrapRelays(relay: item.address)
+    } else {
+      NostrData.shared.disconnectRelay(urlString: item.address)
+    }
+  }
+
+  private func requestDeleteRelay(_ item: RelayItem) {
+    requestDeleteRelayIDs([item.id])
+  }
+
+  private func requestDeleteRelayIDs(_ relayIDs: [String]) {
+    let activeRelaysLeft = storedRelays.relayItems.contains {
+      !relayIDs.contains($0.id) && storedRelays.isActive($0)
+    }
+
+    if !activeRelaysLeft {
+      alert = .deleteLastRelays(relayIDs)
+      return
+    }
+
+    storedRelays.deleteItems(withIDs: relayIDs)
+    NostrData.shared.bootstrapConfiguredRelays()
   }
 }
 
-struct relayManager_Previews: PreviewProvider {
+struct RelayManager_Previews: PreviewProvider {
   static var previews: some View {
     RelayManager()
   }

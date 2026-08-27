@@ -1,5 +1,5 @@
 {
-  "originHash" : "44a74419c4004cd3c7cfa16de72dbefad2a04c2be6dbf24cff74e64025b8c8f2",
+  "originHash" : "da65bd0aa69eef6b411df777db059e7aa83c4bc6c17aeffab29db07104f5d727",
   "pins" : [
     {
       "identity" : "bc-lifehash",
@@ -47,24 +47,6 @@
       }
     },
     {
-      "identity" : "realm-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/realm/realm-core.git",
-      "state" : {
-        "revision" : "cccb3ca9e26ec452a29f2f0d4050d1e38b8a3d43",
-        "version" : "14.14.0"
-      }
-    },
-    {
-      "identity" : "realm-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/realm/realm-swift.git",
-      "state" : {
-        "branch" : "master",
-        "revision" : "5fcba6408c99eb3596bf5ae148bfc1a33b5adebd"
-      }
-    },
-    {
       "identity" : "sdwebimage",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/SDWebImage/SDWebImage.git",
@@ -98,15 +80,6 @@
       "state" : {
         "revision" : "b80388789a8058fc99202436225f8f15d35dfbea",
         "version" : "0.8.1"
-      }
-    },
-    {
-      "identity" : "simpletoast",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sanzaru/SimpleToast.git",
-      "state" : {
-        "revision" : "8d49c8c16d218b03c3428a0d1c8fe79f4e2707a6",
-        "version" : "0.11.0"
       }
     },
     {

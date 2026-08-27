@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct NavigationLinkItem: Identifiable {
   let id = UUID()
@@ -62,13 +63,13 @@ struct WalletListView: View {
 struct WebView: UIViewRepresentable {
   let urlString: String
 
-  func makeUIView(context: Context) -> UIWebView {
-    return UIWebView()
+  func makeUIView(context: Context) -> WKWebView {
+    WKWebView()
   }
 
-  func updateUIView(_ uiView: UIWebView, context: Context) {
+  func updateUIView(_ uiView: WKWebView, context: Context) {
     if let url = URL(string: urlString) {
-      uiView.loadRequest(URLRequest(url: url))
+      uiView.load(URLRequest(url: url))
     }
   }
 }
