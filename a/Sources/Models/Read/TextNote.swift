@@ -4,8 +4,8 @@ import Foundation
 import NostrKit
 import SwiftData
 
-struct PersistedTextNoteSummary: Hashable {
-  enum Origin: Hashable {
+struct PersistedTextNoteSummary: Hashable, Sendable {
+  enum Origin: Hashable, Sendable {
     case historicalRelay
     case liveRelay
     case localPublish

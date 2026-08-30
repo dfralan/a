@@ -58,7 +58,7 @@ struct ProfileSearchProfile: Identifiable, Hashable, Sendable {
     guard event.kind.integerValue == 0,
       event.content.utf8.count <= 128 * 1_024,
       let data = event.content.data(using: .utf8),
-      let metadata = try? JSONDecoder().decode(NostrRelay.SetMetaDataEventData.self, from: data)
+      let metadata = try? JSONDecoder().decode(NostrProfileMetadata.self, from: data)
     else {
       return nil
     }

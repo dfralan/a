@@ -70,18 +70,393 @@ private final class NostrEventIngestionGate {
   }
 }
 
-class NostrRelay: NSObject {
+struct RelayPersistenceEvent: Sendable {
+  let encodedEvent: Data
+  let origin: PersistedTextNoteSummary.Origin
+}
+
+struct RelayFollowPersistenceEvent: Sendable {
+  let encodedEvent: Data
+  let targetPublicKey: String
+}
+
+struct RelayPersistenceBatch: Sendable {
+  let profileEvents: [Data]
+  let textNoteEvents: [RelayPersistenceEvent]
+  let repostEvents: [RelayPersistenceEvent]
+  let reactionEvents: [Data]
+  let followEvents: [RelayFollowPersistenceEvent]
+  let profileFetchedTextNoteIDs: Set<String>
+
+  var isEmpty: Bool {
+    profileEvents.isEmpty
+      && textNoteEvents.isEmpty
+      && repostEvents.isEmpty
+      && reactionEvents.isEmpty
+      && followEvents.isEmpty
+      && profileFetchedTextNoteIDs.isEmpty
+  }
+}
+
+struct RelayPersistenceResult: Sendable {
+  let textNoteSummaries: [PersistedTextNoteSummary]
+  let activityItems: [ActivityItem]
+  let shouldRefreshProfiles: Bool
+  let errorDescription: String?
+}
+
+@ModelActor
+actor RelayPersistenceActor {
+  private static let maxStoredActivityItems = 1_000
+  private static let pruneBatchSize = 150
+
+  func ingest(_ batch: RelayPersistenceBatch) -> RelayPersistenceResult {
+    guard !batch.isEmpty else {
+      return RelayPersistenceResult(
+        textNoteSummaries: [],
+        activityItems: [],
+        shouldRefreshProfiles: false,
+        errorDescription: nil
+      )
+    }
+
+    let decoder = JSONDecoder()
+    var profileCache: [String: RUserProfile] = [:]
+    var textNoteSummaries: [PersistedTextNoteSummary] = []
+    var activityItems: [ActivityItem] = []
+
+    for data in batch.profileEvents {
+      guard let event = try? decoder.decode(Event.self, from: data) else { continue }
+      upsertProfileEvent(event, profileCache: &profileCache)
+    }
+
+    for pendingEvent in batch.textNoteEvents {
+      guard let event = try? decoder.decode(Event.self, from: pendingEvent.encodedEvent) else {
+        continue
+      }
+      if let summary = insertTextNoteEvent(
+        event,
+        origin: pendingEvent.origin,
+        profileCache: &profileCache
+      ) {
+        textNoteSummaries.append(summary)
+      }
+    }
+
+    for pendingEvent in batch.repostEvents {
+      guard let event = try? decoder.decode(Event.self, from: pendingEvent.encodedEvent) else {
+        continue
+      }
+      if let summary = insertRepostEvent(
+        event,
+        origin: pendingEvent.origin,
+        profileCache: &profileCache
+      ) {
+        textNoteSummaries.append(summary)
+      }
+    }
+
+    markProfileFetchedTextNotes(batch.profileFetchedTextNoteIDs)
+
+    for data in batch.reactionEvents {
+      guard let event = try? decoder.decode(Event.self, from: data),
+        let reaction = insertReactionEvent(event),
+        let activityItem = ActivityItem(
+          event: event,
+          targetPublicKey: reaction.targetPublicKey,
+          actorProfile: profileForPublicKey(event.publicKey, profileCache: &profileCache)
+        )
+      else {
+        continue
+      }
+      activityItems.append(activityItem)
+    }
+
+    var processedFollowIDs = Set<String>()
+    for pendingEvent in batch.followEvents {
+      guard let event = try? decoder.decode(Event.self, from: pendingEvent.encodedEvent),
+        processedFollowIDs.insert(event.id).inserted,
+        let notification = insertFollowNotificationEvent(
+          event,
+          targetPublicKey: pendingEvent.targetPublicKey,
+          profileCache: &profileCache
+        )
+      else {
+        continue
+      }
+      activityItems.append(
+        ActivityItem(
+          followNotification: notification,
+          actorProfile: notification.followerProfile
+        )
+      )
+    }
+
+    do {
+      try modelContext.save()
+      if !batch.reactionEvents.isEmpty {
+        pruneStoredReactions()
+      }
+      if !batch.followEvents.isEmpty {
+        pruneStoredFollowNotifications()
+      }
+      return RelayPersistenceResult(
+        textNoteSummaries: textNoteSummaries,
+        activityItems: activityItems,
+        shouldRefreshProfiles: !batch.profileEvents.isEmpty
+          || !batch.textNoteEvents.isEmpty
+          || !batch.repostEvents.isEmpty
+          || !batch.reactionEvents.isEmpty
+          || !batch.followEvents.isEmpty,
+        errorDescription: nil
+      )
+    } catch {
+      modelContext.rollback()
+      return RelayPersistenceResult(
+        textNoteSummaries: [],
+        activityItems: [],
+        shouldRefreshProfiles: false,
+        errorDescription: error.localizedDescription
+      )
+    }
+  }
+
+  private func upsertProfileEvent(
+    _ event: Event,
+    profileCache: inout [String: RUserProfile]
+  ) {
+    guard let data = event.content.data(using: .utf8),
+      let metadata = try? JSONDecoder().decode(NostrProfileMetadata.self, from: data)
+    else {
+      return
+    }
+
+    let profile = profileForPublicKey(event.publicKey, profileCache: &profileCache)
+    let eventDate = Date(timeIntervalSince1970: Double(event.createdAt.timestamp))
+    let hasMetadata =
+      !profile.name.isEmpty || !profile.about.isEmpty || !profile.picture.isEmpty || !profile.nip05.isEmpty
+    guard !hasMetadata || eventDate >= profile.createdAt else { return }
+
+    let nextNIP05 = metadata.normalizedNIP05
+    let shouldResetNIP05 = profile.nip05 != nextNIP05
+
+    profile.name = metadata.preferredName
+    profile.about = metadata.about ?? ""
+    profile.picture = metadata.picture ?? ""
+    profile.nip05 = nextNIP05
+    if shouldResetNIP05 {
+      profile.resetNIP05Verification()
+    }
+    profile.createdAt = eventDate
+  }
+
+  private func insertTextNoteEvent(
+    _ event: Event,
+    origin: PersistedTextNoteSummary.Origin,
+    profileCache: inout [String: RUserProfile]
+  ) -> PersistedTextNoteSummary? {
+    guard textNote(eventID: event.id) == nil else { return nil }
+
+    let textNote = RTextNote.create(with: event)
+    textNote.userProfile = profileForPublicKey(event.publicKey, profileCache: &profileCache)
+    modelContext.insert(textNote)
+    return PersistedTextNoteSummary(
+      eventId: textNote.eventId,
+      publicKey: textNote.publicKey,
+      content: textNote.content,
+      createdAt: textNote.createdAt,
+      hashtags: textNote.taggedHashtags,
+      isSensitiveContent: textNote.isSensitiveContent,
+      sensitiveContentReason: textNote.sensitiveContentReason,
+      origin: origin
+    )
+  }
+
+  private func insertRepostEvent(
+    _ event: Event,
+    origin: PersistedTextNoteSummary.Origin,
+    profileCache: inout [String: RUserProfile]
+  ) -> PersistedTextNoteSummary? {
+    guard !exists(RRepost.self, eventID: event.id) else { return nil }
+
+    let targetTextNote: RTextNote?
+    if let embeddedEvent = RRepost.embeddedTextNoteEvent(from: event) {
+      targetTextNote = upsertEmbeddedTextNoteEvent(embeddedEvent, profileCache: &profileCache)
+    } else if let targetEventID = RRepost.targetEventID(from: event) {
+      targetTextNote = textNote(eventID: targetEventID)
+    } else {
+      targetTextNote = nil
+    }
+
+    guard let targetTextNote,
+      let repost = RRepost.create(with: event, targetTextNote: targetTextNote)
+    else {
+      return nil
+    }
+
+    repost.userProfile = profileForPublicKey(event.publicKey, profileCache: &profileCache)
+    modelContext.insert(repost)
+    return PersistedTextNoteSummary(
+      id: repost.eventId,
+      eventId: targetTextNote.eventId,
+      publicKey: targetTextNote.publicKey,
+      content: targetTextNote.content,
+      createdAt: repost.createdAt,
+      eventCreatedAt: targetTextNote.createdAt,
+      hashtags: targetTextNote.taggedHashtags,
+      isSensitiveContent: targetTextNote.isSensitiveContent,
+      sensitiveContentReason: targetTextNote.sensitiveContentReason,
+      origin: origin,
+      repost: FeedRepost(repost: repost)
+    )
+  }
+
+  private func upsertEmbeddedTextNoteEvent(
+    _ event: Event,
+    profileCache: inout [String: RUserProfile]
+  ) -> RTextNote {
+    if let existing = textNote(eventID: event.id) {
+      return existing
+    }
+
+    let textNote = RTextNote.create(with: event)
+    textNote.userProfile = profileForPublicKey(event.publicKey, profileCache: &profileCache)
+    modelContext.insert(textNote)
+    return textNote
+  }
+
+  private func markProfileFetchedTextNotes(_ eventIDs: Set<String>) {
+    guard !eventIDs.isEmpty else { return }
+    let fetchDate = Date()
+    for eventID in eventIDs {
+      textNote(eventID: eventID)?.lastProfileFetchDate = fetchDate
+    }
+  }
+
+  private func insertReactionEvent(_ event: Event) -> RReaction? {
+    guard !exists(RReaction.self, eventID: event.id),
+      let reaction = RReaction.create(with: event)
+    else {
+      return nil
+    }
+    modelContext.insert(reaction)
+    return reaction
+  }
+
+  private func insertFollowNotificationEvent(
+    _ event: Event,
+    targetPublicKey: String,
+    profileCache: inout [String: RUserProfile]
+  ) -> RFollowNotification? {
+    guard !exists(RFollowNotification.self, eventID: event.id) else { return nil }
+
+    let notification = RFollowNotification.create(with: event, targetPublicKey: targetPublicKey)
+    notification.followerProfile = profileForPublicKey(event.publicKey, profileCache: &profileCache)
+    modelContext.insert(notification)
+    return notification
+  }
+
+  private func textNote(eventID: String) -> RTextNote? {
+    let targetEventID = eventID
+    var descriptor = FetchDescriptor<RTextNote>(
+      predicate: #Predicate { $0.eventId == targetEventID }
+    )
+    descriptor.fetchLimit = 1
+    return try? modelContext.fetch(descriptor).first
+  }
+
+  private func exists<Model: PersistentModel>(_ type: Model.Type, eventID: String) -> Bool {
+    if type == RRepost.self {
+      let targetEventID = eventID
+      var descriptor = FetchDescriptor<RRepost>(
+        predicate: #Predicate { $0.eventId == targetEventID }
+      )
+      descriptor.fetchLimit = 1
+      return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
+    }
+    if type == RReaction.self {
+      let targetEventID = eventID
+      var descriptor = FetchDescriptor<RReaction>(
+        predicate: #Predicate { $0.eventId == targetEventID }
+      )
+      descriptor.fetchLimit = 1
+      return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
+    }
+    if type == RFollowNotification.self {
+      let targetEventID = eventID
+      var descriptor = FetchDescriptor<RFollowNotification>(
+        predicate: #Predicate { $0.eventId == targetEventID }
+      )
+      descriptor.fetchLimit = 1
+      return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
+    }
+    return false
+  }
+
+  private func profileForPublicKey(
+    _ publicKey: String,
+    profileCache: inout [String: RUserProfile]
+  ) -> RUserProfile {
+    if let cached = profileCache[publicKey] {
+      return cached
+    }
+
+    let targetPublicKey = publicKey
+    var descriptor = FetchDescriptor<RUserProfile>(
+      predicate: #Predicate { $0.publicKey == targetPublicKey }
+    )
+    descriptor.fetchLimit = 1
+    if let existing = try? modelContext.fetch(descriptor).first {
+      profileCache[publicKey] = existing
+      return existing
+    }
+
+    let profile = RUserProfile.createEmpty(withPublicKey: publicKey)
+    modelContext.insert(profile)
+    profileCache[publicKey] = profile
+    return profile
+  }
+
+  private func pruneStoredReactions() {
+    var descriptor = FetchDescriptor<RReaction>(
+      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+    )
+    descriptor.fetchLimit = Self.maxStoredActivityItems + Self.pruneBatchSize
+    guard let reactions = try? modelContext.fetch(descriptor),
+      reactions.count > Self.maxStoredActivityItems
+    else {
+      return
+    }
+    for reaction in reactions.dropFirst(Self.maxStoredActivityItems) {
+      modelContext.delete(reaction)
+    }
+    try? modelContext.save()
+  }
+
+  private func pruneStoredFollowNotifications() {
+    var descriptor = FetchDescriptor<RFollowNotification>(
+      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+    )
+    descriptor.fetchLimit = Self.maxStoredActivityItems + Self.pruneBatchSize
+    guard let notifications = try? modelContext.fetch(descriptor),
+      notifications.count > Self.maxStoredActivityItems
+    else {
+      return
+    }
+    for notification in notifications.dropFirst(Self.maxStoredActivityItems) {
+      modelContext.delete(notification)
+    }
+    try? modelContext.save()
+  }
+}
+
+final class NostrRelay: NSObject, @unchecked Sendable {
 
   private static let textNoteSubscriptionLimit = 80
   private static let feedEventKinds: [EventKind] = [.textNote, .custom(6)]
   private static let rawFeedEventKinds = [1, 6]
   private static let reactionHistoryWindow: TimeInterval = -6 * 60 * 60
   private static let reactionSubscriptionLimit = 500
-  private static let maxStoredTextNotes = 500
-  private static let maxProfileFetchedTextNotes = 500
-  private static let profileFetchedTextNoteRetention: TimeInterval = 7 * 24 * 60 * 60
-  private static let maxStoredReactions = 1_000
-  private static let pruneBatchSize = 150
   private static let maxBufferedTextNotes = 120
   private static let maxBufferedProfiles = 180
   private static let maxBufferedReactions = 200
@@ -108,38 +483,13 @@ class NostrRelay: NSObject {
   private static let contactListFollowedByLimit = 100
   private static let maxContactListProfiles = 300
 
-  struct SetMetaDataEventData: Codable {
-    var name: String?
-    var displayName: String?
-    var about: String?
-    var picture: String?
-    var nip05: String?
-
-    enum CodingKeys: String, CodingKey {
-      case name
-      case displayName = "display_name"
-      case about
-      case picture
-      case nip05
-    }
-
-    var preferredName: String {
-      let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      if !displayName.isEmpty { return displayName }
-      return name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    var normalizedNIP05: String {
-      nip05?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased() ?? ""
-    }
-  }
-
   let urlString: String
   let modelContainer: ModelContainer
+  private let persistenceActor: RelayPersistenceActor
+  private let homeLiveAdmission: (String, Int64, FeedItem?) -> HomeLiveAdmissionResult
   var onTextNotesPersisted: (([PersistedTextNoteSummary]) -> Void)?
   var onActivityItemsPersisted: (([ActivityItem]) -> Void)?
+  var onProfilesPersisted: (() -> Void)?
 
   var webSocketTask: URLSessionWebSocketTask?
   var connected = false
@@ -185,12 +535,18 @@ class NostrRelay: NSObject {
   private var profileFetchedTextNoteIDs = Set<String>()
   private var flushWorkItem: DispatchWorkItem?
   private var profileRefreshWorkItem: DispatchWorkItem?
+  private var persistenceTask: Task<Void, Never>?
 
-  let decoder = JSONDecoder()
-
-  init(urlString: String, modelContainer: ModelContainer) {
+  init(
+    urlString: String,
+    modelContainer: ModelContainer,
+    persistenceActor: RelayPersistenceActor,
+    homeLiveAdmission: @escaping (String, Int64, FeedItem?) -> HomeLiveAdmissionResult
+  ) {
     self.urlString = urlString
     self.modelContainer = modelContainer
+    self.persistenceActor = persistenceActor
+    self.homeLiveAdmission = homeLiveAdmission
   }
 
   private var shortConnectionID: String {
@@ -214,6 +570,14 @@ class NostrRelay: NSObject {
 
     guard connected else { return }
     subscribeTextNotes()
+  }
+
+  func advanceHomeLiveCursor(to timestamp: Int64) {
+    let nextCursor = Timestamp(timestamp: Int(timestamp))
+    if let homeLiveCursor, homeLiveCursor.timestamp >= nextCursor.timestamp {
+      return
+    }
+    homeLiveCursor = nextCursor
   }
 
   func connect() {
@@ -391,6 +755,7 @@ class NostrRelay: NSObject {
       subscription: subscription,
       rawFilters: rawFilters,
       scope: scope,
+      purpose: .older,
       receivedEvents: [],
       summaryCompletion: completion,
       feedItemCompletion: nil
@@ -430,6 +795,7 @@ class NostrRelay: NSObject {
       subscription: subscription,
       rawFilters: rawFilters,
       scope: scope,
+      purpose: .older,
       receivedEvents: [],
       summaryCompletion: nil,
       feedItemCompletion: completion
@@ -437,6 +803,46 @@ class NostrRelay: NSObject {
     textNotePageSubs.append(pageSub)
     logRelay(
       "REQ purpose=older-text-notes sub=\(subscriptionID) scope=\(scope.debugDescription) until=\(Int64(date.timeIntervalSince1970)) limit=\(limit)"
+    )
+    sendTextNotePageSubscribe(pageSub)
+    scheduleOlderTextNotePageTimeout(subscriptionID: subscription.id)
+  }
+
+  func subscribeLatestFeedItems(
+    limit: Int,
+    scope: TextNoteFeedScope = .global,
+    completion: @escaping ([FeedItem]) -> Void
+  ) {
+    let subscriptionID = UUID().uuidString
+    let standardFilters = standardTextNoteFilters(
+      scope: scope,
+      since: nil,
+      until: nil,
+      limit: limit
+    )
+    let rawFilters =
+      standardFilters == nil
+      ? rawTextNoteFilters(scope: scope, since: nil, until: nil, limit: limit)
+      : nil
+
+    guard standardFilters?.isEmpty == false || rawFilters?.isEmpty == false else {
+      completion([])
+      return
+    }
+
+    let subscription = Subscription(filters: standardFilters ?? [], id: subscriptionID)
+    let pageSub = TextNotePageSub(
+      subscription: subscription,
+      rawFilters: rawFilters,
+      scope: scope,
+      purpose: .latest,
+      receivedEvents: [],
+      summaryCompletion: nil,
+      feedItemCompletion: completion
+    )
+    textNotePageSubs.append(pageSub)
+    logRelay(
+      "REQ purpose=latest-text-notes sub=\(subscriptionID) scope=\(scope.debugDescription) limit=\(limit)"
     )
     sendTextNotePageSubscribe(pageSub)
     scheduleOlderTextNotePageTimeout(subscriptionID: subscription.id)
@@ -469,7 +875,7 @@ class NostrRelay: NSObject {
 
     let feedItems = sortedEvents.compactMap(FeedItem.init(networkEvent:))
     logRelay(
-      "PAGE-END purpose=older-text-notes reason=\(reason) sub=\(subscriptionID) scope=\(sub.scope.debugDescription) receivedEvents=\(sortedEvents.count) feedItems=\(feedItems.count)"
+      "PAGE-END purpose=\(sub.purpose.logValue) reason=\(reason) sub=\(subscriptionID) scope=\(sub.scope.debugDescription) receivedEvents=\(sortedEvents.count) feedItems=\(feedItems.count)"
     )
     let summaries = feedItems
       .map {
@@ -766,10 +1172,23 @@ class NostrRelay: NSObject {
     let limit: Int
   }
 
+  private enum TextNotePagePurpose {
+    case latest
+    case older
+
+    var logValue: String {
+      switch self {
+      case .latest: return "latest-text-notes"
+      case .older: return "older-text-notes"
+      }
+    }
+  }
+
   private struct TextNotePageSub {
     let subscription: Subscription
     let rawFilters: [RawTextNoteFilter]?
     let scope: TextNoteFeedScope
+    let purpose: TextNotePagePurpose
     var receivedEvents: [Event]
     let summaryCompletion: (([PersistedTextNoteSummary]) -> Void)?
     let feedItemCompletion: (([FeedItem]) -> Void)?
@@ -1816,203 +2235,54 @@ class NostrRelay: NSObject {
       return
     }
 
-    let context = ModelContext(modelContainer)
-    var profileCache: [String: RUserProfile] = [:]
-    var persistedTextNoteSummaries: [PersistedTextNoteSummary] = []
-    var persistedActivityItems: [ActivityItem] = []
-
-    for event in profileEvents {
-      upsertProfileEvent(event, in: context, profileCache: &profileCache)
-    }
-
-    for pendingEvent in textNoteEvents {
-      if let summary = insertTextNoteEvent(
-        pendingEvent.event,
-        origin: pendingEvent.origin,
-        in: context,
-        profileCache: &profileCache
-      ) {
-        persistedTextNoteSummaries.append(summary)
-      }
-    }
-
-    for pendingEvent in repostEvents {
-      if let summary = insertRepostEvent(
-        pendingEvent.event,
-        origin: pendingEvent.origin,
-        in: context,
-        profileCache: &profileCache
-      ) {
-        persistedTextNoteSummaries.append(summary)
-      }
-    }
-
-    markProfileFetchedTextNotes(profileFetchedTextNoteIDs, in: context)
-
-    for event in reactionEvents {
-      if let reaction = insertReactionEvent(event, in: context),
-        let activityItem = ActivityItem(
-          event: event,
-          targetPublicKey: reaction.targetPublicKey,
-          actorProfile: profileForPublicKey(event.publicKey, in: context, profileCache: &profileCache)
+    let encoder = JSONEncoder()
+    let batch = RelayPersistenceBatch(
+      profileEvents: profileEvents.compactMap { try? encoder.encode($0) },
+      textNoteEvents: textNoteEvents.compactMap { pendingEvent in
+        guard let data = try? encoder.encode(pendingEvent.event) else { return nil }
+        return RelayPersistenceEvent(encodedEvent: data, origin: pendingEvent.origin)
+      },
+      repostEvents: repostEvents.compactMap { pendingEvent in
+        guard let data = try? encoder.encode(pendingEvent.event) else { return nil }
+        return RelayPersistenceEvent(encodedEvent: data, origin: pendingEvent.origin)
+      },
+      reactionEvents: reactionEvents.compactMap { try? encoder.encode($0) },
+      followEvents: followNotificationEvents.compactMap { pendingEvent in
+        guard let data = try? encoder.encode(pendingEvent.event) else { return nil }
+        return RelayFollowPersistenceEvent(
+          encodedEvent: data,
+          targetPublicKey: pendingEvent.targetPublicKey
         )
-      {
-        persistedActivityItems.append(activityItem)
-      }
-    }
+      },
+      profileFetchedTextNoteIDs: profileFetchedTextNoteIDs
+    )
 
-    var processedFollowNotificationIDs = Set<String>()
-    for notificationEvent in followNotificationEvents
-      where processedFollowNotificationIDs.insert(notificationEvent.event.id).inserted
-    {
-      if let notification = insertFollowNotificationEvent(
-        notificationEvent,
-        in: context,
-        profileCache: &profileCache
-      ) {
-        persistedActivityItems.append(
-          ActivityItem(
-            followNotification: notification,
-            actorProfile: notification.followerProfile
-          )
-        )
-      }
-    }
+    guard !batch.isEmpty else { return }
 
-    do {
-      try context.save()
-      if !textNoteEvents.isEmpty || !repostEvents.isEmpty || !profileFetchedTextNoteIDs.isEmpty {
-        pruneStoredTextNotes(in: context)
-        pruneStoredReposts(in: context)
-        scheduleProfileRefresh()
-      }
-      if !reactionEvents.isEmpty {
-        pruneStoredReactions(in: context)
-        scheduleProfileRefresh()
-      }
-      if !followNotificationEvents.isEmpty {
-        pruneStoredFollowNotifications(in: context)
-        scheduleProfileRefresh()
-      }
-      onTextNotesPersisted?(persistedTextNoteSummaries)
-      onActivityItemsPersisted?(persistedActivityItems)
-    } catch {
-      print("Error saving relay batch: \(error)")
+    let previousTask = persistenceTask
+    let persistenceActor = persistenceActor
+    let relay = self
+    persistenceTask = Task {
+      await previousTask?.value
+      guard !Task.isCancelled else { return }
+
+      let result = await persistenceActor.ingest(batch)
+      await relay.applyPersistenceResult(result)
     }
   }
 
-  private func upsertProfileEvent(
-    _ event: Event,
-    in context: ModelContext,
-    profileCache: inout [String: RUserProfile]
-  ) {
-    guard let data = event.content.data(using: .utf8),
-      let eventData = try? decoder.decode(SetMetaDataEventData.self, from: data)
-    else {
+  @MainActor
+  private func applyPersistenceResult(_ result: RelayPersistenceResult) {
+    if let errorDescription = result.errorDescription {
+      logRelay("PERSISTENCE error=\(errorDescription)")
       return
     }
-
-    let profile = profileForPublicKey(event.publicKey, in: context, profileCache: &profileCache)
-    let eventDate = Date(timeIntervalSince1970: Double(event.createdAt.timestamp))
-    let profileHasMetadata =
-      !profile.name.isEmpty || !profile.about.isEmpty || !profile.picture.isEmpty || !profile.nip05.isEmpty
-    guard !profileHasMetadata || eventDate >= profile.createdAt else { return }
-
-    let nextNIP05 = eventData.normalizedNIP05
-    let shouldResetNIP05Verification = profile.nip05 != nextNIP05
-
-    profile.name = eventData.preferredName
-    profile.about = eventData.about ?? ""
-    profile.picture = eventData.picture ?? ""
-    profile.nip05 = nextNIP05
-    if shouldResetNIP05Verification {
-      profile.resetNIP05Verification()
+    if result.shouldRefreshProfiles {
+      scheduleProfileRefresh()
+      onProfilesPersisted?()
     }
-    profile.createdAt = eventDate
-  }
-
-  private func insertTextNoteEvent(
-    _ event: Event,
-    origin: PersistedTextNoteSummary.Origin,
-    in context: ModelContext,
-    profileCache: inout [String: RUserProfile]
-  ) -> PersistedTextNoteSummary? {
-    guard !textNoteExists(eventID: event.id, in: context) else { return nil }
-
-    let textNote = RTextNote.create(with: event)
-    textNote.userProfile = profileForPublicKey(event.publicKey, in: context, profileCache: &profileCache)
-    context.insert(textNote)
-
-    return PersistedTextNoteSummary(
-      eventId: textNote.eventId,
-      publicKey: textNote.publicKey,
-      content: textNote.content,
-      createdAt: textNote.createdAt,
-      hashtags: textNote.taggedHashtags,
-      isSensitiveContent: textNote.isSensitiveContent,
-      sensitiveContentReason: textNote.sensitiveContentReason,
-      origin: origin
-    )
-  }
-
-  private func insertRepostEvent(
-    _ event: Event,
-    origin: PersistedTextNoteSummary.Origin,
-    in context: ModelContext,
-    profileCache: inout [String: RUserProfile]
-  ) -> PersistedTextNoteSummary? {
-    guard !repostExists(eventID: event.id, in: context) else { return nil }
-
-    let targetTextNote: RTextNote?
-    if let embeddedEvent = RRepost.embeddedTextNoteEvent(from: event) {
-      targetTextNote = upsertEmbeddedTextNoteEvent(
-        embeddedEvent,
-        in: context,
-        profileCache: &profileCache
-      )
-    } else if let targetEventID = RRepost.targetEventID(from: event) {
-      targetTextNote = textNote(eventID: targetEventID, in: context)
-    } else {
-      targetTextNote = nil
-    }
-
-    guard let targetTextNote,
-      let repost = RRepost.create(with: event, targetTextNote: targetTextNote)
-    else {
-      return nil
-    }
-
-    repost.userProfile = profileForPublicKey(event.publicKey, in: context, profileCache: &profileCache)
-    context.insert(repost)
-
-    return PersistedTextNoteSummary(
-      id: repost.eventId,
-      eventId: targetTextNote.eventId,
-      publicKey: targetTextNote.publicKey,
-      content: targetTextNote.content,
-      createdAt: repost.createdAt,
-      eventCreatedAt: targetTextNote.createdAt,
-      hashtags: targetTextNote.taggedHashtags,
-      isSensitiveContent: targetTextNote.isSensitiveContent,
-      sensitiveContentReason: targetTextNote.sensitiveContentReason,
-      origin: origin,
-      repost: FeedRepost(repost: repost)
-    )
-  }
-
-  private func upsertEmbeddedTextNoteEvent(
-    _ event: Event,
-    in context: ModelContext,
-    profileCache: inout [String: RUserProfile]
-  ) -> RTextNote {
-    if let existingNote = textNote(eventID: event.id, in: context) {
-      return existingNote
-    }
-
-    let textNote = RTextNote.create(with: event)
-    textNote.userProfile = profileForPublicKey(event.publicKey, in: context, profileCache: &profileCache)
-    context.insert(textNote)
-    return textNote
+    onTextNotesPersisted?(result.textNoteSummaries)
+    onActivityItemsPersisted?(result.activityItems)
   }
 
   private func textNote(eventID: String, in context: ModelContext) -> RTextNote? {
@@ -2023,114 +2293,6 @@ class NostrRelay: NSObject {
     descriptor.fetchLimit = 1
 
     return try? context.fetch(descriptor).first
-  }
-
-  private func markProfileFetchedTextNotes(_ eventIDs: Set<String>, in context: ModelContext) {
-    guard !eventIDs.isEmpty else { return }
-
-    let fetchDate = Date()
-    for eventID in eventIDs {
-      let targetEventID = eventID
-      var descriptor = FetchDescriptor<RTextNote>(
-        predicate: #Predicate { $0.eventId == targetEventID }
-      )
-      descriptor.fetchLimit = 1
-
-      if let textNote = try? context.fetch(descriptor).first {
-        textNote.lastProfileFetchDate = fetchDate
-      }
-    }
-  }
-
-  private func textNoteExists(eventID: String, in context: ModelContext) -> Bool {
-    let targetEventID = eventID
-    var descriptor = FetchDescriptor<RTextNote>(
-      predicate: #Predicate { $0.eventId == targetEventID }
-    )
-    descriptor.fetchLimit = 1
-
-    do {
-      return try !context.fetch(descriptor).isEmpty
-    } catch {
-      return false
-    }
-  }
-
-  private func repostExists(eventID: String, in context: ModelContext) -> Bool {
-    let targetEventID = eventID
-    var descriptor = FetchDescriptor<RRepost>(
-      predicate: #Predicate { $0.eventId == targetEventID }
-    )
-    descriptor.fetchLimit = 1
-
-    do {
-      return try !context.fetch(descriptor).isEmpty
-    } catch {
-      return false
-    }
-  }
-
-  private func insertReactionEvent(
-    _ event: Event,
-    in context: ModelContext
-  ) -> RReaction? {
-    guard !reactionExists(eventID: event.id, in: context),
-      let reaction = RReaction.create(with: event)
-    else {
-      return nil
-    }
-
-    context.insert(reaction)
-    return reaction
-  }
-
-  private func insertFollowNotificationEvent(
-    _ notificationEvent: FollowNotificationEvent,
-    in context: ModelContext,
-    profileCache: inout [String: RUserProfile]
-  ) -> RFollowNotification? {
-    let event = notificationEvent.event
-    guard !followNotificationExists(eventID: event.id, in: context) else { return nil }
-
-    let notification = RFollowNotification.create(
-      with: event,
-      targetPublicKey: notificationEvent.targetPublicKey
-    )
-    notification.followerProfile = profileForPublicKey(
-      event.publicKey,
-      in: context,
-      profileCache: &profileCache
-    )
-    context.insert(notification)
-    return notification
-  }
-
-  private func reactionExists(eventID: String, in context: ModelContext) -> Bool {
-    let targetEventID = eventID
-    var descriptor = FetchDescriptor<RReaction>(
-      predicate: #Predicate { $0.eventId == targetEventID }
-    )
-    descriptor.fetchLimit = 1
-
-    do {
-      return try !context.fetch(descriptor).isEmpty
-    } catch {
-      return false
-    }
-  }
-
-  private func followNotificationExists(eventID: String, in context: ModelContext) -> Bool {
-    let targetEventID = eventID
-    var descriptor = FetchDescriptor<RFollowNotification>(
-      predicate: #Predicate { $0.eventId == targetEventID }
-    )
-    descriptor.fetchLimit = 1
-
-    do {
-      return try !context.fetch(descriptor).isEmpty
-    } catch {
-      return false
-    }
   }
 
   private func profileForPublicKey(
@@ -2157,56 +2319,6 @@ class NostrRelay: NSObject {
     context.insert(profile)
     profileCache[publicKey] = profile
     return profile
-  }
-
-  private func pruneStoredTextNotes(in context: ModelContext) {
-    // SwiftData invalidates live model instances as soon as their backing rows are deleted.
-    // Feed/profile/event UIs render value snapshots, but some SwiftUI queries and model
-    // relationships can still be alive during relay flushes. Keep text-note cache pruning
-    // out of the live ingestion path; bounded fetches and visible windows handle memory.
-  }
-
-  private func pruneStoredReposts(in context: ModelContext) {
-    // Same rationale as text notes: reposts may be queried by visible EventView actions.
-    // Do not delete them while the feed is actively rendering.
-  }
-
-  private func pruneStoredReactions(in context: ModelContext) {
-    var descriptor = FetchDescriptor<RReaction>(
-      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-    )
-    descriptor.fetchLimit = Self.maxStoredReactions + Self.pruneBatchSize
-
-    guard let reactions = try? context.fetch(descriptor),
-      reactions.count > Self.maxStoredReactions
-    else {
-      return
-    }
-
-    for reaction in reactions.dropFirst(Self.maxStoredReactions) {
-      context.delete(reaction)
-    }
-
-    try? context.save()
-  }
-
-  private func pruneStoredFollowNotifications(in context: ModelContext) {
-    var descriptor = FetchDescriptor<RFollowNotification>(
-      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-    )
-    descriptor.fetchLimit = Self.maxStoredReactions + Self.pruneBatchSize
-
-    guard let notifications = try? context.fetch(descriptor),
-      notifications.count > Self.maxStoredReactions
-    else {
-      return
-    }
-
-    for notification in notifications.dropFirst(Self.maxStoredReactions) {
-      context.delete(notification)
-    }
-
-    try? context.save()
   }
 
   private func scheduleProfileRefresh() {
@@ -2284,6 +2396,24 @@ class NostrRelay: NSObject {
 
     guard shouldPersistEvent else { return }
 
+    if isFeedLiveEvent {
+      advanceHomeLiveCursor(to: Int64(event.createdAt.timestamp))
+    }
+
+    if isFeedLiveEvent && bootstrapedTextNotes {
+      let admission = homeLiveAdmission(
+        event.id,
+        Int64(event.createdAt.timestamp),
+        feedItem
+      )
+      switch admission.decision {
+      case .collectBacklog, .collectRefreshHandoff:
+        break
+      case .dropDuplicate, .dropSaturated, .dropInactive:
+        return
+      }
+    }
+
     let origin: PersistedTextNoteSummary.Origin =
       isFeedLiveEvent && bootstrapedTextNotes ? .liveRelay : .historicalRelay
 
@@ -2294,16 +2424,6 @@ class NostrRelay: NSObject {
       enqueueRepostEvent(event, origin: origin)
     } else {
       enqueueRepostOriginalLookup(repostEvent: event, origin: origin)
-    }
-
-    if isFeedLiveEvent {
-      if let homeLiveCursor {
-        if event.createdAt.timestamp > homeLiveCursor.timestamp {
-          self.homeLiveCursor = event.createdAt
-        }
-      } else {
-        self.homeLiveCursor = event.createdAt
-      }
     }
   }
 
@@ -2389,22 +2509,31 @@ class NostrRelay: NSObject {
           || (isFeedLiveEvent && textNoteFeedScope.matches(event))
 
         guard shouldPersistEvent else { return }
-        guard NostrEventIngestionGate.shared.claim(event.id) else { return }
+        guard !event.content.isEmpty else { return }
 
-        if !event.content.isEmpty {
-          let origin: PersistedTextNoteSummary.Origin =
-            isFeedLiveEvent && bootstrapedTextNotes ? .liveRelay : .historicalRelay
-          enqueueTextNoteEvent(event, origin: origin)
-          if isFeedLiveEvent {
-            if let homeLiveCursor {
-              if event.createdAt.timestamp > homeLiveCursor.timestamp {
-                self.homeLiveCursor = event.createdAt
-              }
-            } else {
-              self.homeLiveCursor = event.createdAt
-            }
+        if isFeedLiveEvent {
+          advanceHomeLiveCursor(to: Int64(event.createdAt.timestamp))
+        }
+
+        if isFeedLiveEvent && bootstrapedTextNotes {
+          let admission = homeLiveAdmission(
+            event.id,
+            Int64(event.createdAt.timestamp),
+            FeedItem(textNoteEvent: event)
+          )
+          switch admission.decision {
+          case .collectBacklog, .collectRefreshHandoff:
+            break
+          case .dropDuplicate, .dropSaturated, .dropInactive:
+            return
           }
         }
+
+        guard NostrEventIngestionGate.shared.claim(event.id) else { return }
+
+        let origin: PersistedTextNoteSummary.Origin =
+          isFeedLiveEvent && bootstrapedTextNotes ? .liveRelay : .historicalRelay
+        enqueueTextNoteEvent(event, origin: origin)
       case .recommentServer:
         ()
       case .custom(let kind):

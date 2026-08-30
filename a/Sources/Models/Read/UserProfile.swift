@@ -4,6 +4,32 @@ import Foundation
 import NostrKit
 import SwiftData
 
+struct NostrProfileMetadata: Codable, Sendable {
+  let name: String?
+  let displayName: String?
+  let about: String?
+  let picture: String?
+  let nip05: String?
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case displayName = "display_name"
+    case about
+    case picture
+    case nip05
+  }
+
+  var preferredName: String {
+    let trimmedDisplayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !trimmedDisplayName.isEmpty { return trimmedDisplayName }
+    return name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  var normalizedNIP05: String {
+    nip05?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+  }
+}
+
 @Model
 class RUserProfile {
   @Attribute(.unique) var publicKey: String
@@ -99,7 +125,7 @@ extension RUserProfile {
     do {
       let decoder = JSONDecoder()
       let eventData = try decoder.decode(
-        NostrRelay.SetMetaDataEventData.self, from: Data(event.content.utf8))
+        NostrProfileMetadata.self, from: Data(event.content.utf8))
       return RUserProfile(
         publicKey: event.publicKey,
         name: eventData.preferredName,

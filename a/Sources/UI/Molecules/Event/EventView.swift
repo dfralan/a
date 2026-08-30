@@ -106,6 +106,1183 @@ enum EventViewLayout {
   case threadFocus
 }
 
+struct FeedProfileSnapshot: Hashable {
+  let name: String
+  let avatarURL: URL?
+  let isNIP05Verified: Bool
+
+  init(profile: RUserProfile) {
+    self.name = profile.name
+    self.avatarURL = profile.avatarUrl
+    self.isNIP05Verified = profile.verifiedNIP05 != nil
+  }
+}
+
+struct FeedEventSupplement: Hashable {
+  let authorProfile: FeedProfileSnapshot?
+  let reposterProfile: FeedProfileSnapshot?
+  let likeCount: Int
+  let commentCount: Int
+  let isLikedBySelectedKey: Bool
+  let isRepostedBySelectedKey: Bool
+}
+
+struct FeedEventView: View {
+  private static let mediaAspectRatio: CGFloat = 4 / 3
+  private static let mediaCornerRadius: CGFloat = 14
+  private static let collapsedContentCharacterLimit = 360
+
+  @EnvironmentObject private var nostrData: NostrData
+  @EnvironmentObject private var navigation: AppNavigation
+  @EnvironmentObject private var keyManager: KeyManager
+  @EnvironmentObject private var coordinator: Coordinator
+  @Environment(\.modelContext) private var modelContext
+
+  let event: EventViewModel
+  let supplement: FeedEventSupplement?
+  var onInteractionRequiresKey: (() -> Void)?
+  private let presentation: EventPresentationModel
+
+  @State private var showReportReasonDialog = false
+  @State private var showKeyGenerator = false
+  @State private var showShareSheet = false
+  @State private var isPublishingReport = false
+  @State private var isPublishingReaction = false
+  @State private var isPublishingRepost = false
+  @State private var pendingReactionEventID: String?
+  @State private var pendingRepostEventID: String?
+  @State private var isBlurred = true
+  @State private var fullscreenMediaItem: EventFullscreenMediaItem?
+  @State private var loadedAttachmentURLs = Set<String>()
+  @State private var isContentExpanded = false
+
+  init(
+    feedItem: FeedItem,
+    supplement: FeedEventSupplement? = nil,
+    onInteractionRequiresKey: (() -> Void)? = nil
+  ) {
+    self.event = EventViewModel(feedItem: feedItem)
+    self.supplement = supplement
+    self.onInteractionRequiresKey = onInteractionRequiresKey
+    self.presentation = EventRenderCache.shared.rendered(for: event)
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      repostLegend
+
+      HStack(alignment: .top, spacing: 12) {
+        avatarButton
+
+        VStack(alignment: .leading, spacing: 8) {
+          authorHeader
+          eventContentAndActions
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.vertical, 2)
+    .onAppear {
+      resetBlurState()
+    }
+    .onChange(of: coordinator.blurredImages) { _, _ in
+      resetBlurState()
+    }
+    .onChange(of: coordinator.blurSensitiveMedia) { _, _ in
+      resetBlurState()
+    }
+    .fullScreenCover(item: $fullscreenMediaItem) { mediaItem in
+      EventFullscreenMediaViewer(item: mediaItem) {
+        fullscreenMediaItem = nil
+      }
+    }
+    .confirmationDialog(
+      "Report Post",
+      isPresented: $showReportReasonDialog,
+      titleVisibility: .visible
+    ) {
+      Button(sensitiveReportTitle, role: .destructive) {
+        publishReport(
+          type: .other,
+          note: sensitiveReportNote
+        )
+      }
+      Button(NIP56.ReportType.spam.title, role: .destructive) {
+        publishReport(type: .spam)
+      }
+      Button(NIP56.ReportType.illegal.title, role: .destructive) {
+        publishReport(type: .illegal)
+      }
+      Button(NIP56.ReportType.malware.title, role: .destructive) {
+        publishReport(type: .malware)
+      }
+      Button(NIP56.ReportType.impersonation.title, role: .destructive) {
+        publishReport(type: .impersonation)
+      }
+      Button(NIP56.ReportType.profanity.title, role: .destructive) {
+        publishReport(type: .profanity)
+      }
+      Button(NIP56.ReportType.other.title, role: .destructive) {
+        publishReport(type: .other)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Reports are sent to your active relays as a NIP-56 event.")
+    }
+    .sheet(isPresented: $showKeyGenerator) {
+      KeyGen(initialMode: .generate)
+        .environmentObject(keyManager)
+    }
+    .sheet(isPresented: $showShareSheet) {
+      EventShareSheet(
+        event: event,
+        authorDisplayName: displayName,
+        onOpenChat: { publicKey in
+          navigation.push(.chat(publicKey: publicKey))
+        }
+      )
+      .environmentObject(keyManager)
+    }
+  }
+
+  private var avatarButton: some View {
+    Button(action: navigateToProfile) {
+      ZStack {
+        Circle()
+          .fill(Color.primary.opacity(0.001))
+
+        AvatarView(publicKey: event.pubkey, url: profileAvatarURL, size: 44)
+          .allowsHitTesting(false)
+      }
+      .frame(width: 48, height: 48)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Profile")
+  }
+
+  private var authorHeader: some View {
+    HStack(alignment: .top, spacing: 8) {
+      Button(action: navigateToProfile) {
+        VStack(alignment: .leading, spacing: 2) {
+          HStack(spacing: 6) {
+            Text(displayName)
+              .font(.subheadline.weight(.semibold))
+              .foregroundColor(.primary)
+              .lineLimit(1)
+
+            if isAuthorNIP05Verified {
+              Image(systemName: "checkmark.seal.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tint)
+                .accessibilityLabel("Verified NIP-05")
+            }
+
+            Text(Self.publicationTimeLabel(for: event.createdAt))
+              .font(.subheadline)
+              .foregroundColor(.secondary)
+              .monospacedDigit()
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+              .accessibilityLabel(Self.fullPublicationDateFormatter.string(from: event.createdAt))
+          }
+
+          Text(authorPublicKeyLabel)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      Spacer(minLength: 8)
+      eventActionsMenu
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  @ViewBuilder
+  private var repostLegend: some View {
+    if event.repost != nil {
+      HStack(alignment: .center, spacing: 6) {
+        AvatarView(publicKey: event.repost?.publicKey ?? "", url: reposterAvatarURL, size: 18)
+
+        HStack(alignment: .center, spacing: 5) {
+          HStack(alignment: .center, spacing: 2) {
+            Text(reposterDisplayName)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+
+            if isReposterNIP05Verified {
+              Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tint)
+                .accessibilityLabel("Verified NIP-05")
+            }
+          }
+
+          Text("reposted this")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+      .padding(.leading, 60)
+      .accessibilityLabel("\(reposterDisplayName) reposted this")
+    }
+  }
+
+  @ViewBuilder
+  private var eventContentAndActions: some View {
+    if let content = presentation.contentWithoutImageLinks ?? presentation.contentFormatted,
+      !content.characters.isEmpty
+    {
+      contentView(for: content)
+    }
+
+    mediaContent
+    eventFooter
+  }
+
+  private var authorPublicKeyLabel: String {
+    (bech32_pubkey(event.pubkey) ?? event.pubkey).accordionString(index: 10)
+  }
+
+  private var profileAvatarURL: URL? {
+    supplement?.authorProfile?.avatarURL ?? event.profileAvatarURL
+  }
+
+  private var displayName: String {
+    let name = supplement?.authorProfile?.name ?? event.profileName ?? ""
+    return name.isValidName() ? name : "Anonymous"
+  }
+
+  private var isAuthorNIP05Verified: Bool {
+    supplement?.authorProfile?.isNIP05Verified ?? false
+  }
+
+  private var reposterAvatarURL: URL? {
+    supplement?.reposterProfile?.avatarURL
+  }
+
+  private var reposterDisplayName: String {
+    let name = supplement?.reposterProfile?.name ?? ""
+    if name.isValidName() {
+      return name
+    }
+
+    guard let publicKey = event.repost?.publicKey else {
+      return "Someone"
+    }
+
+    return bech32_pubkey(publicKey)?.accordionString(index: 8)
+      ?? publicKey.accordionString(index: 8)
+  }
+
+  private var isReposterNIP05Verified: Bool {
+    supplement?.reposterProfile?.isNIP05Verified ?? false
+  }
+
+  private var selectedPublicKeyHex: String? {
+    if let privateKeyHex = keyManager.selectedPrivateKeyHex {
+      return privkey_to_pubkey(privkey: privateKeyHex)
+    }
+
+    guard case .pub(let publicKeyHex) = decode_bech32_key(keyManager.selectedKey) else {
+      return nil
+    }
+
+    return publicKeyHex
+  }
+
+  private var isLiked: Bool {
+    supplement?.isLikedBySelectedKey ?? false
+  }
+
+  private var isVisuallyLiked: Bool {
+    isLiked || pendingReactionEventID != nil
+  }
+
+  private var isReposted: Bool {
+    supplement?.isRepostedBySelectedKey ?? false
+  }
+
+  private var isVisuallyReposted: Bool {
+    isReposted || pendingRepostEventID != nil
+  }
+
+  private var likeCount: Int {
+    let baseCount = supplement?.likeCount ?? 0
+    guard pendingReactionEventID != nil,
+      selectedPublicKeyHex != nil,
+      !isLiked
+    else {
+      return baseCount
+    }
+
+    return baseCount + 1
+  }
+
+  private var commentCount: Int {
+    supplement?.commentCount ?? 0
+  }
+
+  private func navigateToProfile() {
+    navigation.push(.profile(publicKey: event.pubkey))
+  }
+
+  @ViewBuilder
+  private var eventFooter: some View {
+    HStack(spacing: 18) {
+      reactionControl
+      commentControl
+      repostControl
+      shareControl
+    }
+    .padding(.top, 6)
+  }
+
+  @ViewBuilder
+  private var reactionControl: some View {
+    Button {
+      publishLike()
+    } label: {
+      LikeControlLabel(
+        isLiked: isVisuallyLiked,
+        isPublishing: isPublishingReaction,
+        count: likeCount
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(isPublishingReaction || isVisuallyLiked)
+    .accessibilityLabel(isVisuallyLiked ? "Liked" : "Like")
+    .accessibilityValue("\(likeCount) likes")
+  }
+
+  @ViewBuilder
+  private var commentControl: some View {
+    Button {
+      navigation.push(.thread(target: event.threadTarget))
+    } label: {
+      EventCountIconLabel(
+        systemImage: "bubble.left",
+        activeSystemImage: "bubble.left",
+        count: commentCount,
+        isActive: commentCount > 0,
+        activeColor: .primary
+      )
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Comments")
+    .accessibilityValue("\(commentCount) comments")
+  }
+
+  @ViewBuilder
+  private var repostControl: some View {
+    Button {
+      publishRepost()
+    } label: {
+      Image(systemName: "arrow.2.squarepath")
+        .font(.system(size: 20, weight: isVisuallyReposted ? .semibold : .regular))
+        .foregroundColor(isVisuallyReposted ? .green : .secondary)
+        .frame(width: 36, height: 36, alignment: .center)
+        .scaleEffect(isPublishingRepost ? 1.08 : 1)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(isPublishingRepost || isVisuallyReposted)
+    .accessibilityLabel(isVisuallyReposted ? "Reposted" : "Repost")
+  }
+
+  @ViewBuilder
+  private var shareControl: some View {
+    Button(action: openShareSheet) {
+      Image(systemName: "paperplane")
+        .font(.system(size: 20, weight: .regular))
+        .foregroundColor(.secondary)
+        .frame(width: 36, height: 36, alignment: .center)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Share")
+  }
+
+  @ViewBuilder
+  private var eventActionsMenu: some View {
+    Menu {
+      Button {
+        navigateToProfile()
+      } label: {
+        Label("Open Profile", systemImage: "person.crop.circle")
+      }
+
+      Button {
+        copyEventContent()
+      } label: {
+        Label("Copy Content", systemImage: "doc.on.doc")
+      }
+
+      Button {
+        copyEventID()
+      } label: {
+        Label("Copy Event ID", systemImage: "number")
+      }
+
+      Button {
+        copyUserPublicKey()
+      } label: {
+        Label("Copy npub", systemImage: "key.horizontal")
+      }
+
+      Button {
+        copyProfileURL()
+      } label: {
+        Label("Copy Profile Link", systemImage: "link")
+      }
+
+      Button {
+        navigation.push(.qr(publicKey: event.pubkey))
+      } label: {
+        Label("QR Code", systemImage: "qrcode")
+      }
+
+      Divider()
+
+      Button(role: .destructive) {
+        showReportReasonDialog = true
+      } label: {
+        Label("Report", systemImage: "exclamationmark.bubble")
+      }
+    } label: {
+      Group {
+        if isPublishingReport {
+          ProgressView()
+            .controlSize(.small)
+        } else {
+          Image(systemName: "ellipsis")
+            .font(.system(size: 17, weight: .semibold))
+        }
+      }
+      .foregroundColor(.secondary)
+      .frame(width: 32, height: 32)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .disabled(isPublishingReport)
+    .accessibilityLabel("More")
+  }
+
+  @ViewBuilder
+  private var mediaContent: some View {
+    if let videoUrl = presentation.videoUrl {
+      if shouldLoadAttachment(videoUrl) {
+        let mediaItem = EventFullscreenMediaItem.video(url: videoUrl)
+
+        mediaContainer {
+          EventVideoAttachment(url: videoUrl) {
+            openFullscreenMedia(mediaItem)
+          }
+        }
+        .gesture(mediaTapGesture(for: mediaItem))
+        .accessibilityAction {
+          openFullscreenMedia(mediaItem)
+        }
+      } else {
+        attachmentPlaceholder(for: [videoUrl], includesVideo: true)
+      }
+    } else {
+      let imageUrls = presentation.imageUrls
+
+      if imageUrls.count > 1 {
+        if imageUrls.allSatisfy(shouldLoadAttachment) {
+          TabView {
+            ForEach(Array(imageUrls.enumerated()), id: \.offset) { _, imageUrl in
+              imageView(for: imageUrl)
+                .padding(.vertical, 2)
+            }
+          }
+          .tabViewStyle(.page(indexDisplayMode: .automatic))
+          .aspectRatio(Self.mediaAspectRatio, contentMode: .fit)
+        } else {
+          attachmentPlaceholder(for: imageUrls)
+        }
+      } else if let imageUrl = imageUrls.first {
+        if shouldLoadAttachment(imageUrl) {
+          imageView(for: imageUrl)
+        } else {
+          attachmentPlaceholder(for: [imageUrl])
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func contentView(for content: AttributedString) -> some View {
+    let displayContent = collapsedContent(for: content)
+    let canToggleExpansion = content.characters.count > Self.collapsedContentCharacterLimit
+
+    VStack(alignment: .leading, spacing: 6) {
+      Text(displayContent)
+        .font(.body)
+        .lineSpacing(3)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      if canToggleExpansion {
+        Button {
+          withAnimation(.easeOut(duration: 0.16)) {
+            isContentExpanded.toggle()
+          }
+        } label: {
+          Text(isContentExpanded ? "Show Less" : "Read More")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.tint)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isContentExpanded ? "Collapse post" : "Read full post")
+      }
+    }
+    .padding(.top, 2)
+    .environment(\.openURL, OpenURLAction { url in
+      if let publicKey = NostrInlineText.profilePublicKey(from: url) {
+        navigation.push(.profile(publicKey: publicKey))
+        return .handled
+      }
+
+      return .systemAction
+    })
+  }
+
+  private func collapsedContent(for content: AttributedString) -> AttributedString {
+    let characterCount = content.characters.count
+    guard !isContentExpanded,
+      characterCount > Self.collapsedContentCharacterLimit
+    else {
+      return content
+    }
+
+    let plainText = String(content.characters)
+    let cutoffIndex = collapsedContentCutoffIndex(in: plainText)
+    guard let attributedCutoff = AttributedString.Index(cutoffIndex, within: content) else {
+      return content
+    }
+
+    var excerpt = AttributedString(content[..<attributedCutoff])
+    excerpt.append(AttributedString("…"))
+    return excerpt
+  }
+
+  private func collapsedContentCutoffIndex(in text: String) -> String.Index {
+    let hardLimit = text.index(
+      text.startIndex,
+      offsetBy: Self.collapsedContentCharacterLimit,
+      limitedBy: text.endIndex
+    ) ?? text.endIndex
+    let softWindowStart = text.index(
+      hardLimit,
+      offsetBy: -70,
+      limitedBy: text.startIndex
+    ) ?? text.startIndex
+    let searchRange = softWindowStart..<hardLimit
+
+    if let newlineIndex = text[searchRange].lastIndex(where: \.isNewline) {
+      return newlineIndex
+    }
+    if let whitespaceIndex = text[searchRange].lastIndex(where: \.isWhitespace) {
+      return whitespaceIndex
+    }
+
+    return hardLimit
+  }
+
+  @ViewBuilder
+  private func imageView(for imageUrl: URL) -> some View {
+    let mediaItem = EventFullscreenMediaItem.image(url: imageUrl)
+
+    mediaContainer {
+      switch imageUrl.pathExtension.lowercased() {
+      case "gif", "webp", "svg":
+        AnimatedImage(url: imageUrl)
+          .placeholder {
+            EventMediaSkeleton()
+          }
+          .resizable()
+          .aspectRatio(contentMode: .fill)
+          .blur(radius: isBlurred ? 40 : 0)
+          .overlay {
+            sensitiveWarningOverlay
+          }
+
+      default:
+        KFImage(imageUrl)
+          .placeholder {
+            EventMediaSkeleton()
+          }
+          .setProcessor(
+            DownsamplingImageProcessor(size: CGSize(width: 1_024, height: 768))
+          )
+          .resizable()
+          .cancelOnDisappear(true)
+          .transition(.fade(duration: 0.16))
+          .aspectRatio(contentMode: .fill)
+          .blur(radius: isBlurred ? 40 : 0)
+          .overlay {
+            sensitiveWarningOverlay
+          }
+      }
+    }
+    .gesture(mediaTapGesture(for: mediaItem))
+    .accessibilityAction {
+      openFullscreenMedia(mediaItem)
+    }
+  }
+
+  private func mediaContainer<Content: View>(
+    @ViewBuilder content: @escaping () -> Content
+  ) -> some View {
+    GeometryReader { proxy in
+      ZStack {
+        EventMediaSkeleton()
+
+        content()
+          .frame(width: proxy.size.width, height: proxy.size.height)
+          .clipped()
+      }
+    }
+    .aspectRatio(Self.mediaAspectRatio, contentMode: .fit)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.secondary.opacity(0.08))
+    .clipShape(RoundedRectangle(cornerRadius: Self.mediaCornerRadius, style: .continuous))
+    .contentShape(RoundedRectangle(cornerRadius: Self.mediaCornerRadius, style: .continuous))
+  }
+
+  private func mediaTapGesture(for mediaItem: EventFullscreenMediaItem) -> some Gesture {
+    TapGesture()
+      .onEnded {
+        if isBlurred {
+          withAnimation(.easeOut(duration: 0.16)) {
+            isBlurred = false
+          }
+          return
+        }
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        fullscreenMediaItem = mediaItem
+      }
+  }
+
+  private func openFullscreenMedia(_ mediaItem: EventFullscreenMediaItem) {
+    if isBlurred {
+      withAnimation(.easeOut(duration: 0.16)) {
+        isBlurred = false
+      }
+      return
+    }
+
+    fullscreenMediaItem = mediaItem
+  }
+
+  private var shouldBlurMediaByDefault: Bool {
+    coordinator.blurredImages || (coordinator.blurSensitiveMedia && event.isSensitiveContent)
+  }
+
+  private var shouldShowSensitiveWarning: Bool {
+    isBlurred && event.isSensitiveContent
+  }
+
+  private func resetBlurState() {
+    isBlurred = shouldBlurMediaByDefault
+  }
+
+  private func shouldLoadAttachment(_ url: URL) -> Bool {
+    if loadedAttachmentURLs.contains(url.absoluteString) {
+      return true
+    }
+
+    switch coordinator.selectedAttachmentLoadingMode {
+    case .automatically:
+      return true
+    case .askFirst:
+      return false
+    case .sensitiveOnly:
+      return !event.isSensitiveContent
+    }
+  }
+
+  @ViewBuilder
+  private func attachmentPlaceholder(for urls: [URL], includesVideo: Bool = false) -> some View {
+    EventAttachmentPlaceholder(
+      count: urls.count,
+      isSensitive: event.isSensitiveContent,
+      reason: event.sensitiveContentLabel,
+      includesVideo: includesVideo,
+      action: {
+        loadAttachments(urls)
+      }
+    )
+  }
+
+  private func loadAttachments(_ urls: [URL]) {
+    withAnimation(.easeOut(duration: 0.16)) {
+      for url in urls {
+        loadedAttachmentURLs.insert(url.absoluteString)
+      }
+      resetBlurState()
+    }
+  }
+
+  @ViewBuilder
+  private var sensitiveWarningOverlay: some View {
+    if shouldShowSensitiveWarning {
+      ZStack {
+        Rectangle()
+          .fill(Color.black.opacity(0.18))
+
+        VStack(spacing: 8) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.title3)
+
+          Text("Sensitive Content")
+            .font(.subheadline.weight(.semibold))
+
+          let sensitiveReason = event.sensitiveContentReason
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+          if !sensitiveReason.isEmpty {
+            Text(sensitiveReason)
+              .font(.caption)
+              .multilineTextAlignment(.center)
+              .lineLimit(2)
+          }
+
+          Text("Tap to reveal")
+            .font(.caption2)
+            .foregroundColor(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .foregroundColor(.primary)
+      }
+      .allowsHitTesting(false)
+    }
+  }
+
+  private func openShareSheet() {
+    guard keyManager.selectedPrivateKeyHex != nil else {
+      if let onInteractionRequiresKey {
+        onInteractionRequiresKey()
+      } else {
+        showKeyGenerator = true
+      }
+      return
+    }
+
+    showShareSheet = true
+  }
+
+  private func publishLike() {
+    guard !isPublishingReaction else { return }
+    guard !isLiked else { return }
+
+    guard let privateKeyHex = keyManager.selectedPrivateKeyHex else {
+      if let onInteractionRequiresKey {
+        onInteractionRequiresKey()
+      } else {
+        showKeyGenerator = true
+      }
+      return
+    }
+
+    let relayUrls = selectedRelayURLs()
+    guard !relayUrls.isEmpty else {
+      EfimerousManager.shared.showMessage("Select at least one relay")
+      return
+    }
+
+    do {
+      let keyPair = try KeyPair(privateKey: privateKeyHex)
+      let draft = NIP25.reaction(
+        eventID: event.id,
+        publicKey: event.pubkey,
+        content: "+",
+        eventKind: event.kind,
+        relayHint: event.threadTarget.focused.primaryRelayHint,
+        address: eventAddress
+      )
+      let reactionEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+
+      withAnimation(.spring(response: 0.16, dampingFraction: 0.62)) {
+        pendingReactionEventID = reactionEvent.event.id
+        isPublishingReaction = true
+      }
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      cacheReactionEvent(reactionEvent.event)
+      publishReaction(reactionEvent, to: relayUrls)
+    } catch {
+      EfimerousManager.shared.showMessage("Could not create reaction")
+    }
+  }
+
+  private func publishRepost() {
+    guard !isPublishingRepost else { return }
+    guard !isReposted else { return }
+
+    guard let privateKeyHex = keyManager.selectedPrivateKeyHex else {
+      if let onInteractionRequiresKey {
+        onInteractionRequiresKey()
+      } else {
+        showKeyGenerator = true
+      }
+      return
+    }
+
+    let relayUrls = selectedRelayURLs()
+    guard !relayUrls.isEmpty else {
+      EfimerousManager.shared.showMessage("Select at least one relay")
+      return
+    }
+
+    do {
+      let keyPair = try KeyPair(privateKey: privateKeyHex)
+      let draft = NIP18.repost(
+        eventID: event.id,
+        publicKey: event.pubkey,
+        eventKind: event.kind,
+        relayHint: event.threadTarget.focused.primaryRelayHint
+      )
+      let repostEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+
+      withAnimation(.spring(response: 0.16, dampingFraction: 0.7)) {
+        pendingRepostEventID = repostEvent.event.id
+        isPublishingRepost = true
+      }
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      if event.kind == 1 {
+        _ = nostrData.persistPublishedRepost(
+          repostEvent.event,
+          originalEventID: event.id,
+          originalPublicKey: event.pubkey,
+          originalContent: event.content,
+          originalCreatedAt: event.createdAt,
+          originalIsSensitiveContent: event.isSensitiveContent,
+          originalSensitiveContentReason: event.sensitiveContentReason
+        )
+      } else {
+        _ = nostrData.persistPublishedGenericRepost(repostEvent.event)
+      }
+      publishRepost(repostEvent, to: relayUrls)
+    } catch {
+      EfimerousManager.shared.showMessage("Could not create repost")
+    }
+  }
+
+  private func publishRepost(_ repostEvent: PostEventContent, to relayUrls: [URL]) {
+    var completedCount = 0
+    var failedCount = 0
+
+    for relayUrl in relayUrls {
+      repostEvent.sendToNostr(relayUrl: relayUrl) { result in
+        DispatchQueue.main.async {
+          completedCount += 1
+
+          if case .failure = result {
+            failedCount += 1
+          }
+
+          guard completedCount == relayUrls.count else { return }
+          finishRepostPublishing(relayCount: relayUrls.count, failedCount: failedCount)
+        }
+      }
+    }
+  }
+
+  private func finishRepostPublishing(relayCount: Int, failedCount: Int) {
+    withAnimation(.spring(response: 0.18, dampingFraction: 0.78)) {
+      isPublishingRepost = false
+    }
+
+    guard failedCount < relayCount else {
+      if let pendingRepostEventID {
+        removeCachedRepost(eventID: pendingRepostEventID)
+      }
+      withAnimation(.easeOut(duration: 0.15)) {
+        pendingRepostEventID = nil
+      }
+      EfimerousManager.shared.showMessage("Could not send repost")
+      return
+    }
+
+    pendingRepostEventID = nil
+  }
+
+  private func removeCachedRepost(eventID: String) {
+    let targetEventID = eventID
+    var descriptor = FetchDescriptor<RRepost>(
+      predicate: #Predicate { $0.eventId == targetEventID }
+    )
+    descriptor.fetchLimit = 1
+
+    guard let repost = try? modelContext.fetch(descriptor).first else {
+      return
+    }
+
+    modelContext.delete(repost)
+    try? modelContext.save()
+  }
+
+  private func publishReaction(_ reactionEvent: PostEventContent, to relayUrls: [URL]) {
+    var completedCount = 0
+    var failedCount = 0
+
+    for relayUrl in relayUrls {
+      reactionEvent.sendToNostr(relayUrl: relayUrl) { result in
+        DispatchQueue.main.async {
+          completedCount += 1
+
+          if case .failure = result {
+            failedCount += 1
+          }
+
+          guard completedCount == relayUrls.count else { return }
+          finishReactionPublishing(relayCount: relayUrls.count, failedCount: failedCount)
+        }
+      }
+    }
+  }
+
+  private func finishReactionPublishing(relayCount: Int, failedCount: Int) {
+    withAnimation(.spring(response: 0.18, dampingFraction: 0.78)) {
+      isPublishingReaction = false
+    }
+
+    guard failedCount < relayCount else {
+      if let pendingReactionEventID {
+        removeCachedReaction(eventID: pendingReactionEventID)
+      }
+      withAnimation(.easeOut(duration: 0.15)) {
+        pendingReactionEventID = nil
+      }
+      EfimerousManager.shared.showMessage("Could not send reaction")
+      return
+    }
+
+    pendingReactionEventID = nil
+  }
+
+  private func cacheReactionEvent(_ event: Event) {
+    guard let reaction = RReaction.create(with: event),
+      !cachedReactionExists(eventID: reaction.eventId)
+    else {
+      return
+    }
+
+    modelContext.insert(reaction)
+    try? modelContext.save()
+  }
+
+  private func cachedReactionExists(eventID: String) -> Bool {
+    let targetEventID = eventID
+    var descriptor = FetchDescriptor<RReaction>(
+      predicate: #Predicate { $0.eventId == targetEventID }
+    )
+    descriptor.fetchLimit = 1
+
+    guard let result = try? modelContext.fetch(descriptor) else {
+      return false
+    }
+
+    return !result.isEmpty
+  }
+
+  private func removeCachedReaction(eventID: String) {
+    let targetEventID = eventID
+    var descriptor = FetchDescriptor<RReaction>(
+      predicate: #Predicate { $0.eventId == targetEventID }
+    )
+    descriptor.fetchLimit = 1
+
+    guard let reaction = try? modelContext.fetch(descriptor).first else {
+      return
+    }
+
+    modelContext.delete(reaction)
+    try? modelContext.save()
+  }
+
+  private func publishReport(type: NIP56.ReportType, note: String = "") {
+    guard !isPublishingReport else { return }
+
+    guard let privateKeyHex = keyManager.selectedPrivateKeyHex else {
+      if let onInteractionRequiresKey {
+        onInteractionRequiresKey()
+      } else {
+        showKeyGenerator = true
+      }
+      return
+    }
+
+    let relayUrls = selectedRelayURLs()
+    guard !relayUrls.isEmpty else {
+      EfimerousManager.shared.showMessage("Select at least one relay")
+      return
+    }
+
+    do {
+      let keyPair = try KeyPair(privateKey: privateKeyHex)
+      let draft = NIP56.report(
+        eventID: event.id,
+        publicKey: event.pubkey,
+        type: type,
+        note: reportNote(type: type, note: note)
+      )
+      let reportEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+
+      isPublishingReport = true
+      publishReport(reportEvent, to: relayUrls)
+    } catch {
+      EfimerousManager.shared.showMessage("Could not create report")
+    }
+  }
+
+  private func publishReport(_ reportEvent: PostEventContent, to relayUrls: [URL]) {
+    var completedCount = 0
+    var failedCount = 0
+
+    for relayUrl in relayUrls {
+      reportEvent.sendToNostr(relayUrl: relayUrl) { result in
+        completedCount += 1
+
+        if case .failure = result {
+          failedCount += 1
+        }
+
+        guard completedCount == relayUrls.count else { return }
+        finishReportPublishing(relayCount: relayUrls.count, failedCount: failedCount)
+      }
+    }
+  }
+
+  private func finishReportPublishing(relayCount: Int, failedCount: Int) {
+    isPublishingReport = false
+
+    guard failedCount < relayCount else {
+      EfimerousManager.shared.showMessage("Could not send report")
+      return
+    }
+
+    let sentCount = relayCount - failedCount
+    EfimerousManager.shared.showMessage(sentCount == 1 ? "Report sent" : "Report sent to \(sentCount) relays")
+  }
+
+  private func selectedRelayURLs() -> [URL] {
+    nostrData.storedRelays.ensureDefaultRelays()
+    return nostrData.storedRelays.activeRelayAddresses.compactMap { URL(string: $0) }
+  }
+
+  private var eventAddress: String? {
+    guard case .address(let coordinate, _, _, _, _) = event.threadTarget.focused else {
+      return nil
+    }
+    return coordinate
+  }
+
+  private func reportNote(type: NIP56.ReportType, note: String) -> String {
+    let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedNote.isEmpty else { return trimmedNote }
+
+    return "Reported as \(type.rawValue) from Land."
+  }
+
+  private var userPublicKeyBech32: String {
+    bech32_pubkey(event.pubkey) ?? event.pubkey
+  }
+
+  private var profileURL: String {
+    "https://nostr.com/\(userPublicKeyBech32)"
+  }
+
+  private var sensitiveReportTitle: String {
+    event.isSensitiveContent ? "Sensitive Content Warning" : "Missing Content Warning"
+  }
+
+  private var sensitiveReportNote: String {
+    if event.isSensitiveContent {
+      return "Reported sensitive content warning: \(event.sensitiveContentLabel)"
+    }
+
+    return "Reported as sensitive content or missing content warning."
+  }
+
+  private func copyEventContent() {
+    let content = event.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !content.isEmpty else {
+      EfimerousManager.shared.showMessage("No content to copy")
+      return
+    }
+
+    UIPasteboard.general.string = content
+    EfimerousManager.shared.showMessage("Copied")
+  }
+
+  private func copyEventID() {
+    UIPasteboard.general.string = event.id
+    EfimerousManager.shared.showMessage("Copied")
+  }
+
+  private func copyUserPublicKey() {
+    UIPasteboard.general.string = userPublicKeyBech32
+    EfimerousManager.shared.showMessage("Copied")
+  }
+
+  private func copyProfileURL() {
+    UIPasteboard.general.string = profileURL
+    EfimerousManager.shared.showMessage("Copied")
+  }
+
+  private static let shortPublicationDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMM d")
+    return formatter
+  }()
+
+  private static let fullPublicationDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter
+  }()
+
+  private static func publicationTimeLabel(for date: Date, now: Date = Date()) -> String {
+    let seconds = max(0, Int(now.timeIntervalSince(date)))
+
+    if seconds < 60 {
+      return "now"
+    }
+
+    let minutes = seconds / 60
+    if minutes < 60 {
+      return "\(minutes)m"
+    }
+
+    let hours = minutes / 60
+    if hours < 24 {
+      return "\(hours)h"
+    }
+
+    let days = hours / 24
+    if days < 7 {
+      return "\(days)d"
+    }
+
+    return shortPublicationDateFormatter.string(from: date)
+  }
+}
+
 struct EventView: View {
 
   // MARK: - Properties
@@ -125,7 +1302,6 @@ struct EventView: View {
   let event: EventViewModel
   var onInteractionRequiresKey: (() -> Void)?
   private let layout: EventViewLayout
-  private let prefetchCommentCount: Bool
   private let presentation: EventPresentationModel
   @Query private var reactions: [RReaction]
   @Query private var reposts: [RRepost]
@@ -150,9 +1326,6 @@ struct EventView: View {
   @State private var fullscreenMediaItem: EventFullscreenMediaItem?
   @State private var loadedAttachmentURLs = Set<String>()
   @State private var isContentExpanded = false
-  @State private var discoveredCommentEventIDs = Set<String>()
-  @State private var commentPrefetchRequest: ThreadRequest?
-  @State private var commentRepository: NostrThreadRepository?
 
   init(textNote: RTextNote, onInteractionRequiresKey: (() -> Void)? = nil) {
     self.init(event: EventViewModel(textNote: textNote), onInteractionRequiresKey: onInteractionRequiresKey)
@@ -170,21 +1343,18 @@ struct EventView: View {
     self.init(
       event: EventViewModel(threadItem: threadItem),
       onInteractionRequiresKey: onInteractionRequiresKey,
-      layout: layout,
-      prefetchCommentCount: false
+      layout: layout
     )
   }
 
   init(
     event: EventViewModel,
     onInteractionRequiresKey: (() -> Void)? = nil,
-    layout: EventViewLayout = .standard,
-    prefetchCommentCount: Bool = true
+    layout: EventViewLayout = .standard
   ) {
     self.event = event
     self.onInteractionRequiresKey = onInteractionRequiresKey
     self.layout = layout
-    self.prefetchCommentCount = prefetchCommentCount
     self.presentation = EventRenderCache.shared.rendered(for: event)
 
     let reactedEventID = event.id
@@ -246,18 +1416,12 @@ struct EventView: View {
     .padding(.vertical, 2)
     .onAppear {
       resetBlurState()
-      prefetchCommentsForCounter()
     }
     .task(id: authorNIP05VerificationTaskID) {
       await verifyAuthorNIP05IfNeeded()
     }
     .task(id: reposterNIP05VerificationTaskID) {
       await verifyReposterNIP05IfNeeded()
-    }
-    .onDisappear {
-      commentPrefetchRequest?.cancel()
-      commentPrefetchRequest = nil
-      commentRepository = nil
     }
     .onChange(of: coordinator.blurredImages) { _, _ in
       resetBlurState()
@@ -426,35 +1590,6 @@ struct EventView: View {
     navigation.push(.profile(publicKey: event.pubkey))
   }
 
-  private func prefetchCommentsForCounter() {
-    guard prefetchCommentCount,
-      event.threadTarget.focused.canonicalKey == event.threadTarget.root.canonicalKey
-    else { return }
-
-    let repository = commentRepository ?? NostrThreadRepository(nostrData: nostrData)
-    commentRepository = repository
-    commentPrefetchRequest?.cancel()
-    commentPrefetchRequest = repository.fetchReplyPage(
-      for: event.threadTarget,
-      cursor: nil,
-      limit: 12
-    ) { result in
-      guard case .success(let page) = result else { return }
-      DispatchQueue.main.async {
-        registerDiscoveredCommentIDs(page.items.map(\.id))
-      }
-    }
-  }
-
-  private func registerDiscoveredCommentIDs(_ eventIDs: [String]) {
-    let filteredEventIDs = eventIDs.filter { !$0.isEmpty && $0 != event.id }
-    guard !filteredEventIDs.isEmpty else { return }
-
-    withAnimation(.easeOut(duration: 0.16)) {
-      discoveredCommentEventIDs.formUnion(filteredEventIDs)
-    }
-  }
-
   private var profileAvatarURL: URL? {
     userProfiles.first?.avatarUrl ?? event.profileAvatarURL
   }
@@ -617,7 +1752,6 @@ struct EventView: View {
   private var commentCount: Int {
     var commentIDs = Set(comments.map(\.eventId))
     commentIDs.formUnion(cachedThreadReplies.map(\.eventId))
-    commentIDs.formUnion(discoveredCommentEventIDs)
     return commentIDs.count
   }
 
@@ -1327,8 +2461,11 @@ struct EventView: View {
           .placeholder {
             EventMediaSkeleton()
           }
+          .setProcessor(
+            DownsamplingImageProcessor(size: CGSize(width: 1_024, height: 768))
+          )
           .resizable()
-          .cacheOriginalImage()
+          .cancelOnDisappear(true)
           .transition(.fade(duration: 0.16))
           .aspectRatio(contentMode: .fill)
           .blur(radius: isBlurred ? 40 : 0)
@@ -2344,10 +3481,16 @@ private final class EventPresentationBox {
 final class EventRenderCache {
   static let shared = EventRenderCache()
 
+  private static let maximumCost = 12 * 1_024 * 1_024
   private let cache = NSCache<NSString, EventPresentationBox>()
 
   private init() {
-    cache.countLimit = 600
+    cache.countLimit = 64
+    cache.totalCostLimit = Self.maximumCost
+  }
+
+  func removeAll() {
+    cache.removeAllObjects()
   }
 
   func rendered(for textNote: RTextNote) -> EventPresentationModel {
@@ -2365,7 +3508,8 @@ final class EventRenderCache {
     }
 
     let rendered = render(content: content)
-    cache.setObject(EventPresentationBox(rendered), forKey: cacheKey)
+    let contentCost = max(content.utf8.count * 4, 1)
+    cache.setObject(EventPresentationBox(rendered), forKey: cacheKey, cost: contentCost)
     return rendered
   }
 

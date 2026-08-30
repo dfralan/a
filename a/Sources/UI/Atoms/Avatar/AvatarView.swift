@@ -84,9 +84,13 @@ struct AvatarView: View {
         KFImage(url)
           // Show LifeHash immediately instead of a placeholder that might never resolve
           .onFailure { _ in }
+          .setProcessor(
+            DownsamplingImageProcessor(
+              size: CGSize(width: size * 3, height: size * 3)
+            )
+          )
           .resizable()
           .cancelOnDisappear(true)
-          .cacheOriginalImage()
           .aspectRatio(contentMode: .fill)
           // If Kingfisher has not produced an image yet, overlay LifeHash
           .modifier(KFFallbackOverlay(publicKey: fallbackKey, size: size))

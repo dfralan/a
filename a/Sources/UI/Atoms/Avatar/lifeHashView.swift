@@ -26,7 +26,14 @@ public class LifeHashView: UIImageView {
 
   public private(set) var version: LifeHashVersion = .version2
 
+  private var hasSynchronizedInput = false
+
   public func set(hashInput: Data?, version: LifeHashVersion) {
+    guard !hasSynchronizedInput || self.hashInput != hashInput || self.version != version else {
+      return
+    }
+
+    hasSynchronizedInput = true
     self.hashInput = hashInput
     self.version = version
     self.sizeToFit()
@@ -36,6 +43,7 @@ public class LifeHashView: UIImageView {
   public func reset() {
     resetView()
     hashInput = nil
+    hasSynchronizedInput = false
   }
 
   private func set(image: UIImage) {

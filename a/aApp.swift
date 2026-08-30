@@ -1,7 +1,10 @@
 // a
 
-import SwiftUI
+import Kingfisher
+import SDWebImageSwiftUI
 import SwiftData
+import SwiftUI
+import UIKit
 
 @main
 
@@ -16,12 +19,27 @@ struct aApp: App {
   @StateObject var nostrData: NostrData = NostrData.shared
   /// Nostr Data Initialization
 
+  init() {
+    ImageCache.default.memoryStorage.config.totalCostLimit = 32 * 1_024 * 1_024
+    ImageCache.default.memoryStorage.config.countLimit = 100
+    ImageCache.default.memoryStorage.config.expiration = .seconds(5 * 60)
+    SDImageCache.shared.config.maxMemoryCost = 32 * 1_024 * 1_024
+    SDImageCache.shared.config.maxMemoryCount = 100
+  }
+
   var body: some Scene {
 
     WindowGroup {
       RootView()
         .environmentObject(nostrData)
         .modelContainer(nostrData.modelContainer)
+        .onReceive(
+          NotificationCenter.default.publisher(
+            for: UIApplication.didReceiveMemoryWarningNotification
+          )
+        ) { _ in
+          releaseEvictableMemory()
+        }
     }
 
     // MARK: - Actions to retrieve on app scene change
@@ -50,5 +68,12 @@ struct aApp: App {
 
       }
     }
+  }
+
+  private func releaseEvictableMemory() {
+    EventRenderCache.shared.removeAll()
+    ImageCache.default.clearMemoryCache()
+    SDImageCache.shared.clearMemory()
+    nostrData.handleMemoryWarning()
   }
 }

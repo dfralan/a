@@ -25,6 +25,241 @@ import NostrKit
 import SwiftData
 import SwiftUI
 
+enum HomeLiveCollectionState: Equatable, Sendable {
+  case inactive(needsRebase: Bool)
+  case collecting
+  case saturated(displayCount: Int)
+  case refreshing
+  case refreshFailed
+}
+
+enum HomeLiveAdmissionDecision: Equatable, Sendable {
+  case collectBacklog
+  case collectRefreshHandoff
+  case dropDuplicate
+  case dropSaturated
+  case dropInactive
+}
+
+struct HomeLiveAdmissionSnapshot: Equatable, Sendable {
+  let state: HomeLiveCollectionState
+  let pendingCount: Int
+  let latestObservedCursor: Int64?
+}
+
+struct HomeLiveAdmissionResult: Sendable {
+  let decision: HomeLiveAdmissionDecision
+  let snapshot: HomeLiveAdmissionSnapshot
+  let shouldNotifyObservers: Bool
+}
+
+final class HomeLiveEventAdmission {
+  private let lock = NSLock()
+  private let capacity: Int
+  private let refreshCapacity: Int
+  private let staleInterval: TimeInterval
+  private var state: HomeLiveCollectionState = .inactive(needsRebase: false)
+  private var pendingEventIDs = Set<String>()
+  private var refreshItemsByID: [String: FeedItem] = [:]
+  private var latestObservedCursor: Int64?
+  private var lastDeactivatedAt: Date?
+
+  init(
+    capacity: Int = 100,
+    refreshCapacity: Int = 12,
+    staleInterval: TimeInterval = 5 * 60
+  ) {
+    self.capacity = max(1, capacity)
+    self.refreshCapacity = max(1, refreshCapacity)
+    self.staleInterval = max(0, staleInterval)
+  }
+
+  func activate(now: Date = Date()) -> (snapshot: HomeLiveAdmissionSnapshot, needsRebase: Bool) {
+    lock.lock()
+    defer { lock.unlock() }
+
+    if case .inactive(let needsRebase) = state {
+      let hasGoneStale = lastDeactivatedAt.map {
+        now.timeIntervalSince($0) >= staleInterval
+      } ?? false
+      guard !needsRebase, !hasGoneStale else {
+        state = .inactive(needsRebase: true)
+        return (makeSnapshot(), true)
+      }
+
+      state = pendingEventIDs.count >= capacity
+        ? .saturated(displayCount: capacity)
+        : .collecting
+      lastDeactivatedAt = nil
+    }
+
+    return (makeSnapshot(), false)
+  }
+
+  func deactivate(now: Date = Date()) -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+
+    let needsRebase: Bool
+    switch state {
+    case .refreshing:
+      needsRebase = true
+      refreshItemsByID.removeAll(keepingCapacity: true)
+    case .inactive(let existingValue):
+      needsRebase = existingValue
+    case .collecting, .saturated, .refreshFailed:
+      needsRebase = false
+    }
+
+    if lastDeactivatedAt == nil {
+      lastDeactivatedAt = now
+    }
+    state = .inactive(needsRebase: needsRebase)
+    return makeSnapshot()
+  }
+
+  func reset(collecting: Bool) -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+
+    pendingEventIDs.removeAll(keepingCapacity: true)
+    refreshItemsByID.removeAll(keepingCapacity: true)
+    latestObservedCursor = nil
+    lastDeactivatedAt = nil
+    state = collecting ? .collecting : .inactive(needsRebase: false)
+    return makeSnapshot()
+  }
+
+  func beginRefresh() -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+
+    refreshItemsByID.removeAll(keepingCapacity: true)
+    lastDeactivatedAt = nil
+    state = .refreshing
+    return makeSnapshot()
+  }
+
+  func completeRefresh(
+    pageItems: [FeedItem],
+    newestCursor: Int64?
+  ) -> (items: [FeedItem], snapshot: HomeLiveAdmissionSnapshot) {
+    lock.lock()
+    defer { lock.unlock() }
+
+    var itemsByID = refreshItemsByID
+    for item in pageItems {
+      itemsByID[item.id] = item
+    }
+
+    let mergedItems = itemsByID.values.sorted(by: Self.sortNewestFirst)
+    pendingEventIDs.removeAll(keepingCapacity: true)
+    refreshItemsByID.removeAll(keepingCapacity: true)
+    lastDeactivatedAt = nil
+    if let newestCursor {
+      latestObservedCursor = max(latestObservedCursor ?? newestCursor, newestCursor)
+    }
+    state = .collecting
+    return (mergedItems, makeSnapshot())
+  }
+
+  func failRefresh() -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+
+    refreshItemsByID.removeAll(keepingCapacity: true)
+    state = .refreshFailed
+    return makeSnapshot()
+  }
+
+  func handleMemoryWarning() -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+
+    pendingEventIDs.removeAll(keepingCapacity: false)
+    refreshItemsByID.removeAll(keepingCapacity: false)
+    lastDeactivatedAt = Date()
+    state = .inactive(needsRebase: true)
+    return makeSnapshot()
+  }
+
+  func admit(
+    eventID: String,
+    createdAt: Int64,
+    item: FeedItem?
+  ) -> HomeLiveAdmissionResult {
+    lock.lock()
+    defer { lock.unlock() }
+
+    let previousState = state
+    let previousPendingCount = pendingEventIDs.count
+    latestObservedCursor = max(latestObservedCursor ?? createdAt, createdAt)
+
+    let decision: HomeLiveAdmissionDecision
+    switch state {
+    case .collecting:
+      if pendingEventIDs.contains(eventID) {
+        decision = .dropDuplicate
+      } else if pendingEventIDs.count >= capacity {
+        state = .saturated(displayCount: capacity)
+        decision = .dropSaturated
+      } else {
+        pendingEventIDs.insert(eventID)
+        if pendingEventIDs.count == capacity {
+          state = .saturated(displayCount: capacity)
+        }
+        decision = .collectBacklog
+      }
+
+    case .refreshing:
+      if refreshItemsByID[eventID] != nil || pendingEventIDs.contains(eventID) {
+        decision = .dropDuplicate
+      } else if let item, refreshItemsByID.count < refreshCapacity {
+        refreshItemsByID[eventID] = item
+        decision = .collectRefreshHandoff
+      } else {
+        decision = .dropSaturated
+      }
+
+    case .saturated, .refreshFailed:
+      decision = pendingEventIDs.contains(eventID) ? .dropDuplicate : .dropSaturated
+
+    case .inactive:
+      state = .inactive(needsRebase: true)
+      decision = .dropInactive
+    }
+
+    let snapshot = makeSnapshot()
+    return HomeLiveAdmissionResult(
+      decision: decision,
+      snapshot: snapshot,
+      shouldNotifyObservers: previousState != snapshot.state
+        || previousPendingCount != snapshot.pendingCount
+    )
+  }
+
+  func snapshot() -> HomeLiveAdmissionSnapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    return makeSnapshot()
+  }
+
+  private func makeSnapshot() -> HomeLiveAdmissionSnapshot {
+    HomeLiveAdmissionSnapshot(
+      state: state,
+      pendingCount: pendingEventIDs.count,
+      latestObservedCursor: latestObservedCursor
+    )
+  }
+
+  private static func sortNewestFirst(_ lhs: FeedItem, _ rhs: FeedItem) -> Bool {
+    if lhs.createdAtTimestamp == rhs.createdAtTimestamp {
+      return lhs.id < rhs.id
+    }
+    return lhs.createdAtTimestamp > rhs.createdAtTimestamp
+  }
+}
+
 class NostrData: ObservableObject {
 
   static let lastSeenDefaultsKey = "lastSeenDefaultsKey"
@@ -53,11 +288,15 @@ class NostrData: ObservableObject {
   private let nip05VerificationGate = NIP05VerificationGate(limit: 3)
   private var textNoteObservers: [UUID: ([PersistedTextNoteSummary]) -> Void] = [:]
   private var activityObservers: [UUID: ([ActivityItem]) -> Void] = [:]
+  private var profileObservers: [UUID: () -> Void] = [:]
+  private var homeLiveObservers: [UUID: (HomeLiveAdmissionSnapshot) -> Void] = [:]
+  private let homeLiveAdmission = HomeLiveEventAdmission()
   private var textNoteFeedScope: TextNoteFeedScope = .global
   private let contactListFetchCooldown: TimeInterval = 10
   private let profileTextNoteFetchCooldown: TimeInterval = 15
   private let activityFetchCooldown: TimeInterval = 15
   let modelContainer: ModelContainer
+  private lazy var relayPersistenceActor = RelayPersistenceActor(modelContainer: modelContainer)
   static let shared = NostrData()
 
   private init() {
@@ -186,13 +425,32 @@ class NostrData: ObservableObject {
       return
     }
 
-    let nostrRelay = NostrRelay(urlString: normalizedRelay, modelContainer: modelContainer)
+    let nostrRelay = NostrRelay(
+      urlString: normalizedRelay,
+      modelContainer: modelContainer,
+      persistenceActor: relayPersistenceActor,
+      homeLiveAdmission: { [weak self] eventID, createdAt, item in
+        self?.admitHomeLiveEvent(eventID: eventID, createdAt: createdAt, item: item)
+          ?? HomeLiveAdmissionResult(
+            decision: .dropInactive,
+            snapshot: HomeLiveAdmissionSnapshot(
+              state: .inactive(needsRebase: true),
+              pendingCount: 0,
+              latestObservedCursor: createdAt
+            ),
+            shouldNotifyObservers: false
+          )
+      }
+    )
     nostrRelay.setTextNoteFeedScope(textNoteFeedScope)
     nostrRelay.onTextNotesPersisted = { [weak self] summaries in
       self?.notifyPersistedTextNotes(summaries)
     }
     nostrRelay.onActivityItemsPersisted = { [weak self] items in
       self?.notifyPersistedActivityItems(items)
+    }
+    nostrRelay.onProfilesPersisted = { [weak self] in
+      self?.notifyPersistedProfiles()
     }
     self.nostrRelays.append(nostrRelay)
     nostrRelay.connect()
@@ -440,6 +698,7 @@ class NostrData: ObservableObject {
       repost.userProfile = profile(for: repost.publicKey, in: context)
       context.insert(repost)
       try context.save()
+      notifyPersistedProfiles()
       return true
     } catch {
       print("Error saving published generic repost: \(error)")
@@ -538,17 +797,20 @@ class NostrData: ObservableObject {
         if latestProfile.nip05VerificationStatus == .checking {
           latestProfile.nip05VerificationStatus = previousStatus
           try? verificationContext.save()
+          notifyPersistedProfiles()
         }
       } else if let result {
         latestProfile.nip05VerificationStatus = result.status
         latestProfile.nip05LastCheckedAt = result.checkedAt
         latestProfile.nip05VerificationURLString = result.verificationURL.absoluteString
         try? verificationContext.save()
+        notifyPersistedProfiles()
       } else {
         latestProfile.nip05VerificationStatus = .invalid
         latestProfile.nip05LastCheckedAt = Date()
         latestProfile.nip05VerificationURLString = NIP05.parse(identifier)?.url?.absoluteString ?? ""
         try? verificationContext.save()
+        notifyPersistedProfiles()
       }
     }
 
@@ -721,6 +983,68 @@ class NostrData: ObservableObject {
     }
   }
 
+  func fetchLatestFeedPage(
+    scope: FeedScope,
+    limit: Int
+  ) async -> FeedPage<FeedItem> {
+    guard isNetworkEnabled else {
+      return FeedPage(items: [], cursor: nil, exhausted: false)
+    }
+
+    bootstrapConfiguredRelays()
+
+    let relays = nostrRelays.filter { $0.connected || $0.isConnecting }
+    guard !relays.isEmpty else {
+      return FeedPage(items: [], cursor: nil, exhausted: false)
+    }
+
+    let textNoteScope = scope.textNoteFeedScope
+
+    return await withCheckedContinuation { continuation in
+      let lock = NSLock()
+      var completedCount = 0
+      var itemsByID: [String: FeedItem] = [:]
+
+      func relayDidComplete(with items: [FeedItem]) {
+        lock.lock()
+        for item in items {
+          itemsByID[item.id] = item
+        }
+        completedCount += 1
+        let shouldComplete = completedCount == relays.count
+        let mergedItems = itemsByID.values.sorted {
+          if $0.createdAtTimestamp == $1.createdAtTimestamp {
+            return $0.id < $1.id
+          }
+          return $0.createdAtTimestamp > $1.createdAtTimestamp
+        }
+        lock.unlock()
+
+        guard shouldComplete else { return }
+
+        let pageItems = Array(mergedItems.prefix(limit))
+        let nextCursor = pageItems.last.map {
+          FeedCursor(until: max(0, $0.createdAtTimestamp - 1))
+        }
+        let page = FeedPage(
+          items: pageItems,
+          cursor: nextCursor,
+          exhausted: false
+        )
+
+        DispatchQueue.main.async {
+          continuation.resume(returning: page)
+        }
+      }
+
+      for relay in relays {
+        relay.subscribeLatestFeedItems(limit: limit, scope: textNoteScope) { items in
+          relayDidComplete(with: items)
+        }
+      }
+    }
+  }
+
   func fetchOlderActivityPage(
     scope: ActivityScope,
     cursor: ActivityCursor?,
@@ -833,6 +1157,7 @@ class NostrData: ObservableObject {
     guard textNoteFeedScope != scope else { return }
 
     textNoteFeedScope = scope
+    notifyHomeLiveSnapshot(homeLiveAdmission.reset(collecting: true))
 
     for relay in nostrRelays {
       relay.setTextNoteFeedScope(scope)
@@ -863,6 +1188,91 @@ class NostrData: ObservableObject {
 
   func removePersistedActivityObserver(_ id: UUID) {
     activityObservers.removeValue(forKey: id)
+  }
+
+  @discardableResult
+  func observePersistedProfiles(
+    _ observer: @escaping () -> Void
+  ) -> UUID {
+    let id = UUID()
+    profileObservers[id] = observer
+    return id
+  }
+
+  func removePersistedProfileObserver(_ id: UUID) {
+    profileObservers.removeValue(forKey: id)
+  }
+
+  @discardableResult
+  func observeHomeLiveCollection(
+    _ observer: @escaping (HomeLiveAdmissionSnapshot) -> Void
+  ) -> UUID {
+    let id = UUID()
+    homeLiveObservers[id] = observer
+    observer(homeLiveAdmission.snapshot())
+    return id
+  }
+
+  func removeHomeLiveCollectionObserver(_ id: UUID) {
+    homeLiveObservers.removeValue(forKey: id)
+  }
+
+  @discardableResult
+  func activateHomeLiveCollection() -> Bool {
+    let result = homeLiveAdmission.activate()
+    notifyHomeLiveSnapshot(result.snapshot)
+    return result.needsRebase
+  }
+
+  func deactivateHomeLiveCollection() {
+    notifyHomeLiveSnapshot(homeLiveAdmission.deactivate())
+  }
+
+  func resetHomeLiveCollection(collecting: Bool) {
+    notifyHomeLiveSnapshot(homeLiveAdmission.reset(collecting: collecting))
+  }
+
+  func beginHomeLatestRefresh() {
+    notifyHomeLiveSnapshot(homeLiveAdmission.beginRefresh())
+  }
+
+  func completeHomeLatestRefresh(pageItems: [FeedItem]) -> [FeedItem] {
+    let newestCursor = pageItems.first?.createdAtTimestamp
+    let result = homeLiveAdmission.completeRefresh(
+      pageItems: pageItems,
+      newestCursor: newestCursor
+    )
+    if let committedCursor = result.items.first?.createdAtTimestamp {
+      for relay in nostrRelays {
+        relay.advanceHomeLiveCursor(to: committedCursor)
+      }
+    }
+    notifyHomeLiveSnapshot(result.snapshot)
+    return result.items
+  }
+
+  func failHomeLatestRefresh() {
+    notifyHomeLiveSnapshot(homeLiveAdmission.failRefresh())
+  }
+
+  func handleMemoryWarning() {
+    notifyHomeLiveSnapshot(homeLiveAdmission.handleMemoryWarning())
+  }
+
+  private func admitHomeLiveEvent(
+    eventID: String,
+    createdAt: Int64,
+    item: FeedItem?
+  ) -> HomeLiveAdmissionResult {
+    let result = homeLiveAdmission.admit(
+      eventID: eventID,
+      createdAt: createdAt,
+      item: item
+    )
+    if result.shouldNotifyObservers {
+      notifyHomeLiveSnapshot(result.snapshot)
+    }
+    return result
   }
 
   @MainActor
@@ -963,6 +1373,7 @@ class NostrData: ObservableObject {
     profileTextNoteFetchDates.removeAll()
     activityFetchDates.removeAll()
     NostrRelay.resetIngestionGate()
+    notifyHomeLiveSnapshot(homeLiveAdmission.reset(collecting: false))
 
     let context = ModelContext(modelContainer)
 
@@ -1027,6 +1438,22 @@ class NostrData: ObservableObject {
     DispatchQueue.main.async {
       for observer in self.activityObservers.values {
         observer(items)
+      }
+    }
+  }
+
+  private func notifyPersistedProfiles() {
+    DispatchQueue.main.async {
+      for observer in self.profileObservers.values {
+        observer()
+      }
+    }
+  }
+
+  private func notifyHomeLiveSnapshot(_ snapshot: HomeLiveAdmissionSnapshot) {
+    DispatchQueue.main.async {
+      for observer in self.homeLiveObservers.values {
+        observer(snapshot)
       }
     }
   }
