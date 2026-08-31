@@ -167,6 +167,89 @@ final class ThreadProtocolTests: XCTestCase {
     XCTAssertEqual(ThreadProtocolStrategies.strategy(for: file).protocolKind, .nip22)
   }
 
+  func testActivityClassifiesNIP10DirectReply() throws {
+    let root = ThreadReference.event(
+      id: rootID,
+      kind: 1,
+      publicKey: rootAuthor,
+      relayHints: []
+    )
+    let event = try signedEvent(
+      from: NIP10ThreadStrategy().makeReplyDraft(
+        content: "Direct reply",
+        target: ThreadTarget(focused: root),
+        parseProfileMentions: false
+      )
+    )
+    let item = try XCTUnwrap(
+      ActivityItem(event: event, targetPublicKey: rootAuthor)
+    )
+
+    XCTAssertEqual(item.kind, .reply)
+    XCTAssertEqual(item.relatedEventID, event.id)
+    guard case .event(let reference) = item.route else {
+      return XCTFail("Reply activity should navigate to its event")
+    }
+    XCTAssertEqual(reference.id, event.id)
+    XCTAssertEqual(reference.kind, 1)
+  }
+
+  func testExplicitMentionWinsOverReplyForNIP22Comment() throws {
+    let root = ThreadReference.event(
+      id: rootID,
+      kind: 1063,
+      publicKey: rootAuthor,
+      relayHints: []
+    )
+    let mention = try XCTUnwrap(bech32_pubkey(rootAuthor))
+    let event = try signedEvent(
+      from: NIP22ThreadStrategy().makeReplyDraft(
+        content: "Hey @\(mention)",
+        target: ThreadTarget(focused: root),
+        parseProfileMentions: true
+      )
+    )
+    let item = try XCTUnwrap(
+      ActivityItem(event: event, targetPublicKey: rootAuthor)
+    )
+
+    XCTAssertEqual(item.kind, .mention)
+    XCTAssertEqual(item.relatedEventKind, 1111)
+  }
+
+  func testInheritedParticipantTagIsNotMisclassifiedAsMentionOrReply() throws {
+    let root = ThreadReference.event(
+      id: rootID,
+      kind: 1,
+      publicKey: rootAuthor,
+      relayHints: []
+    )
+    let parent = ThreadReference.event(
+      id: parentID,
+      kind: 1,
+      publicKey: parentAuthor,
+      relayHints: []
+    )
+    let event = try signedEvent(
+      from: NIP10ThreadStrategy().makeReplyDraft(
+        content: "Replying only to the parent",
+        target: ThreadTarget(
+          focused: parent,
+          root: root,
+          commentProtocol: .nip10,
+          participantPublicKeys: [rootAuthor, parentAuthor]
+        ),
+        parseProfileMentions: false
+      )
+    )
+
+    XCTAssertNil(ActivityItem(event: event, targetPublicKey: rootAuthor))
+    XCTAssertEqual(
+      ActivityItem(event: event, targetPublicKey: parentAuthor)?.kind,
+      .reply
+    )
+  }
+
   func testRepositoryPageDeduplicatesRelaysAndKeepsOnlyDirectChildren() throws {
     let root = ThreadReference.event(
       id: rootID,

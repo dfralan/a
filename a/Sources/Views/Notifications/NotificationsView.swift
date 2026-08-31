@@ -76,7 +76,7 @@ struct NotificationsView: View {
         ForEach(ActivityTimeSection.sections(for: activityController.visibleItems)) { section in
           Section(section.title) {
             ForEach(section.items) { item in
-              NavigationLink(value: AppNavigation.Route.profile(publicKey: item.actorPublicKey)) {
+              NavigationLink(value: navigationRoute(for: item)) {
                 ActivityNotificationRow(
                   item: item,
                   actorProfile: profilesByPublicKey[item.actorPublicKey]
@@ -121,6 +121,15 @@ struct NotificationsView: View {
       systemImage: "bell.badge",
       description: Text("Activity is shown for the active key.")
     )
+  }
+
+  private func navigationRoute(for item: ActivityItem) -> AppNavigation.Route {
+    switch item.route {
+    case .profile(let publicKey):
+      return .profile(publicKey: publicKey)
+    case .event(let reference):
+      return .event(reference: reference)
+    }
   }
 
 }
@@ -375,6 +384,28 @@ private final class ActivityController: ObservableObject {
       )
     }
 
+    if scope.includesThreadActivity {
+      var descriptor = FetchDescriptor<RThreadEvent>(
+        predicate: #Predicate { $0.createdAt <= cutoff },
+        sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+      )
+      descriptor.fetchLimit = fetchLimit
+      let threadItems = ((try? context.fetch(descriptor)) ?? [])
+        .compactMap { $0.threadItem() }
+      actorPublicKeys.formUnion(threadItems.map(\.publicKey))
+      let profilesByPublicKey = profiles(for: actorPublicKeys, in: context)
+
+      items.append(
+        contentsOf: threadItems.compactMap {
+          ActivityItem(
+            threadItem: $0,
+            targetPublicKey: scope.publicKey,
+            actorProfile: profilesByPublicKey[$0.publicKey]
+          )
+        }
+      )
+    }
+
     return items
       .filter { !visibleIDs.contains($0.id) }
       .filter { $0.actorPublicKey != scope.publicKey }
@@ -443,6 +474,7 @@ private final class ActivityController: ObservableObject {
 private enum ActivityNotificationFilter: String, CaseIterable, Identifiable {
   case all
   case reactions
+  case conversations
   case follows
 
   var id: String { rawValue }
@@ -451,14 +483,16 @@ private enum ActivityNotificationFilter: String, CaseIterable, Identifiable {
     switch self {
     case .all: return "All"
     case .reactions: return "Likes"
+    case .conversations: return "Replies"
     case .follows: return "Follows"
     }
   }
 
   var activityKinds: Set<ActivityKind> {
     switch self {
-    case .all: return [.reaction, .follow]
+    case .all: return [.reaction, .follow, .reply, .mention]
     case .reactions: return [.reaction]
+    case .conversations: return [.reply, .mention]
     case .follows: return [.follow]
     }
   }
@@ -520,6 +554,7 @@ private struct ActivityEmptyState: View {
     switch filter {
     case .all: return "bell"
     case .reactions: return "heart"
+    case .conversations: return "bubble.left.and.bubble.right"
     case .follows: return "person.2"
     }
   }
@@ -532,6 +567,7 @@ private struct ActivityEmptyState: View {
     switch filter {
     case .all: return "No Activity"
     case .reactions: return "No Likes"
+    case .conversations: return "No Replies"
     case .follows: return "No Follows"
     }
   }
@@ -539,9 +575,11 @@ private struct ActivityEmptyState: View {
   private var message: String {
     switch filter {
     case .all:
-      return "Likes and follows for the active key will appear here."
+      return "Likes, replies, mentions, and follows for the active key will appear here."
     case .reactions:
       return "Likes on your posts will appear here."
+    case .conversations:
+      return "Replies and mentions for the active key will appear here."
     case .follows:
       return "New followers for the active key will appear here."
     }
@@ -623,6 +661,8 @@ private struct ActivityNotificationRow: View {
     switch item.kind {
     case .reaction: return "heart.fill"
     case .follow: return "person.fill"
+    case .reply: return "bubble.left.fill"
+    case .mention: return "at"
     }
   }
 
@@ -630,6 +670,7 @@ private struct ActivityNotificationRow: View {
     switch item.kind {
     case .reaction: return .red
     case .follow: return .accentColor
+    case .reply, .mention: return .accentColor
     }
   }
 

@@ -14,6 +14,7 @@ struct HomeView: View {
   private static let olderBoundaryIDPrefix = "older-feed-boundary-"
   private static let toolbarCollapseOffset: CGFloat = 28
   private static let toolbarScrollDirectionBucketSize: CGFloat = 12
+  private static let refreshTriggerDistance: CGFloat = 72
   private static let mediaPrefetchNoteLimit = 8
   private static let mediaPrefetchURLLimit = 4
   var onMenuTap: (() -> Void)? = nil
@@ -41,6 +42,12 @@ struct HomeView: View {
   @State private var isOlderBoundaryVisible = false
   @State private var didTriggerOlderLoadForVisibleBoundary = false
   @State private var olderLoadRequest: OlderLoadRequest?
+  @State private var pullRefreshProgress: CGFloat = 0
+  @State private var pullRefreshScale: CGFloat = 1
+  @State private var isPullRefreshArmed = false
+  @State private var isPullRefreshing = false
+  @State private var feedScrollPhase: ScrollPhase = .idle
+  @State private var pullRefreshTask: Task<Void, Never>?
 
   @Query var contactLists: [RContactList]
   @Query var verseWatchers: [VerseWatcher]
@@ -209,11 +216,21 @@ struct HomeView: View {
               .padding(.bottom, 96)
             }
             .onScrollGeometryChange(for: FeedScrollState.self) { geometry in
+              let pullDistance = max(
+                0,
+                -(geometry.contentOffset.y + geometry.contentInsets.top)
+              )
+              let refreshProgress = min(
+                pullDistance / Self.refreshTriggerDistance,
+                1
+              )
+
               return FeedScrollState(
                 isBeyondToolbarCollapseOffset: geometry.contentOffset.y > Self.toolbarCollapseOffset,
                 scrollOffsetBucket: Int(
                   max(0, geometry.contentOffset.y) / Self.toolbarScrollDirectionBucketSize
-                )
+                ),
+                refreshProgressStep: Int(refreshProgress * 100)
               )
             } action: { previousState, scrollState in
               feedController.recordScrollOffset(
@@ -221,7 +238,9 @@ struct HomeView: View {
                   * Int(Self.toolbarScrollDirectionBucketSize)
               )
               updateToolbarCollapseState(from: previousState, to: scrollState)
+              updatePullRefreshProgress(step: scrollState.refreshProgressStep)
             }
+            .onScrollPhaseChange(updateFeedScrollPhase)
             .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.15) { eventIDs in
               updateOlderBoundaryVisibility(eventIDs.contains(olderBoundaryID))
 
@@ -236,6 +255,13 @@ struct HomeView: View {
               isOlderBoundaryVisible = false
               didTriggerOlderLoadForVisibleBoundary = false
               olderLoadRequest = nil
+              pullRefreshTask?.cancel()
+              pullRefreshTask = nil
+              pullRefreshProgress = 0
+              pullRefreshScale = 1
+              isPullRefreshArmed = false
+              isPullRefreshing = false
+              feedScrollPhase = .idle
               mediaPrefetcher?.stop()
               mediaPrefetcher = nil
               prefetchedMediaURLs.removeAll()
@@ -280,12 +306,16 @@ struct HomeView: View {
                 break
               }
             }
-            .refreshable {
-              guard feedController.pendingNewerCount > 0 || feedController.needsLatestRebase else {
-                return
-              }
-              await returnToLatest()
+            .overlay(alignment: .top) {
+              FeedRefreshIndicator(
+                progress: pullRefreshProgress,
+                scale: pullRefreshScale,
+                isArmed: isPullRefreshArmed,
+                isRefreshing: isPullRefreshing
+              )
+              .padding(.top, 8)
             }
+            .accessibilityAction(named: "Refresh Feed", requestPullRefresh)
 
             /// Home tapped listener
             .onChange(of: toolbarState.homeTapped) { _, _ in
@@ -341,7 +371,6 @@ struct HomeView: View {
               }
             }
           )
-          .padding()
           .transition(.scale(scale: 0.96).combined(with: .opacity))
         }
       }
@@ -406,7 +435,11 @@ struct HomeView: View {
 
       .overlay(alignment: .top) {
         Group {
-          if feedController.pendingNewerCount > 0 && !shouldShowGuestWelcome {
+          if feedController.pendingNewerCount > 0
+            && !shouldShowGuestWelcome
+            && pullRefreshProgress == 0
+            && !isPullRefreshing
+          {
             NewPostsCounterButton(count: feedController.pendingNewerCount) {
               Task {
                 await returnToLatest()
@@ -567,6 +600,71 @@ struct HomeView: View {
       expandToolbar()
     } else if scrollState.scrollOffsetBucket > previousState.scrollOffsetBucket {
       setToolbarCollapsed(true)
+    }
+  }
+
+  private func updatePullRefreshProgress(step: Int) {
+    guard !isPullRefreshing else { return }
+
+    let progress = CGFloat(step) / 100
+    guard pullRefreshProgress != progress else { return }
+    if progress > 0, pullRefreshScale == 0 {
+      pullRefreshScale = 1
+    }
+    pullRefreshProgress = progress
+
+    guard feedScrollPhase == .tracking || feedScrollPhase == .interacting else { return }
+    isPullRefreshArmed = progress >= 1
+  }
+
+  private func updateFeedScrollPhase(_ oldPhase: ScrollPhase, _ newPhase: ScrollPhase) {
+    feedScrollPhase = newPhase
+
+    let endedInteraction = (oldPhase == .tracking || oldPhase == .interacting)
+      && newPhase != .tracking
+      && newPhase != .interacting
+    guard endedInteraction else { return }
+
+    if isPullRefreshArmed {
+      requestPullRefresh()
+    } else {
+      withAnimation(.easeInOut(duration: 0.18)) {
+        pullRefreshProgress = 0
+      }
+    }
+  }
+
+  private func requestPullRefresh() {
+    guard viewIsVisible,
+      !shouldShowGuestWelcome,
+      !isPullRefreshing
+    else {
+      return
+    }
+
+    isPullRefreshArmed = false
+    isPullRefreshing = true
+    pullRefreshProgress = 1
+    pullRefreshScale = 1
+    dismissTriggeredRefreshIndicator()
+    pullRefreshTask?.cancel()
+    pullRefreshTask = Task { @MainActor in
+      await returnToLatest()
+      guard !Task.isCancelled else { return }
+
+      isPullRefreshing = false
+      pullRefreshTask = nil
+    }
+  }
+
+  private func dismissTriggeredRefreshIndicator() {
+    withAnimation(.easeInOut(duration: 0.1), completionCriteria: .logicallyComplete) {
+      pullRefreshScale = 1.14
+    } completion: {
+      withAnimation(.easeInOut(duration: 0.16)) {
+        pullRefreshProgress = 0
+        pullRefreshScale = 0
+      }
     }
   }
 
@@ -777,6 +875,7 @@ struct HomeView: View {
 private struct FeedScrollState: Equatable {
   let isBeyondToolbarCollapseOffset: Bool
   let scrollOffsetBucket: Int
+  let refreshProgressStep: Int
 }
 
 private struct OlderLoadRequest: Equatable, Identifiable {
@@ -792,6 +891,29 @@ private struct FeedSkeletonBatch: View {
       EventSkeletonView()
       Divider()
     }
+  }
+}
+
+private struct FeedRefreshIndicator: View {
+  let progress: CGFloat
+  let scale: CGFloat
+  let isArmed: Bool
+  let isRefreshing: Bool
+
+  private var isVisible: Bool {
+    progress > 0 && scale > 0.01
+  }
+
+  var body: some View {
+    ALogoView(drawProgress: progress)
+      .frame(width: 28, height: 28)
+      .scaleEffect(scale)
+      .opacity(isVisible ? 1 : 0)
+      .animation(.easeInOut(duration: 0.18), value: isVisible)
+      .allowsHitTesting(false)
+      .accessibilityHidden(!isVisible)
+      .accessibilityLabel(isRefreshing ? "Refreshing feed" : "Pull to refresh")
+      .accessibilityValue(isArmed ? "Release to refresh" : "")
   }
 }
 
@@ -1298,6 +1420,7 @@ private final class FeedEventSupplementStore: ObservableObject {
         reposterProfile: reposterProfile,
         likeCount: likerPublicKeys.count,
         commentCount: commentCount,
+        repostCount: reposterPublicKeySet.count,
         isLikedBySelectedKey: selectedPublicKeyHex.map(likerPublicKeys.contains) ?? false,
         isRepostedBySelectedKey: selectedPublicKeyHex.map(reposterPublicKeySet.contains) ?? false
       )

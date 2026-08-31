@@ -123,6 +123,7 @@ struct FeedEventSupplement: Hashable {
   let reposterProfile: FeedProfileSnapshot?
   let likeCount: Int
   let commentCount: Int
+  let repostCount: Int
   let isLikedBySelectedKey: Bool
   let isRepostedBySelectedKey: Bool
 }
@@ -414,6 +415,10 @@ struct FeedEventView: View {
     isReposted || pendingRepostEventID != nil
   }
 
+  private var isRepostHighlighted: Bool {
+    (supplement?.repostCount ?? 0) > 0 || isVisuallyReposted
+  }
+
   private var likeCount: Int {
     let baseCount = supplement?.likeCount ?? 0
     guard pendingReactionEventID != nil,
@@ -436,7 +441,7 @@ struct FeedEventView: View {
 
   @ViewBuilder
   private var eventFooter: some View {
-    HStack(spacing: 18) {
+    HStack(spacing: 10) {
       reactionControl
       commentControl
       repostControl
@@ -457,7 +462,7 @@ struct FeedEventView: View {
       )
     }
     .buttonStyle(.plain)
-    .disabled(isPublishingReaction || isVisuallyLiked)
+    .disabled(isPublishingReaction)
     .accessibilityLabel(isVisuallyLiked ? "Liked" : "Like")
     .accessibilityValue("\(likeCount) likes")
   }
@@ -486,14 +491,14 @@ struct FeedEventView: View {
       publishRepost()
     } label: {
       Image(systemName: "arrow.2.squarepath")
-        .font(.system(size: 20, weight: isVisuallyReposted ? .semibold : .regular))
-        .foregroundColor(isVisuallyReposted ? .green : .secondary)
+        .font(.system(size: 17, weight: isRepostHighlighted ? .semibold : .regular))
+        .foregroundStyle(isRepostHighlighted ? Color.primary : Color.secondary)
         .frame(width: 36, height: 36, alignment: .center)
         .scaleEffect(isPublishingRepost ? 1.08 : 1)
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .disabled(isPublishingRepost || isVisuallyReposted)
+    .disabled(isPublishingRepost)
     .accessibilityLabel(isVisuallyReposted ? "Reposted" : "Repost")
   }
 
@@ -501,7 +506,7 @@ struct FeedEventView: View {
   private var shareControl: some View {
     Button(action: openShareSheet) {
       Image(systemName: "paperplane")
-        .font(.system(size: 20, weight: .regular))
+        .font(.system(size: 17, weight: .regular))
         .foregroundColor(.secondary)
         .frame(width: 36, height: 36, alignment: .center)
         .contentShape(Rectangle())
@@ -1735,6 +1740,10 @@ struct EventView: View {
     isReposted || pendingRepostEventID != nil
   }
 
+  private var isRepostHighlighted: Bool {
+    !reposts.isEmpty || isVisuallyReposted
+  }
+
   private var likeCount: Int {
     var likerPublicKeys = Set<String>()
 
@@ -1757,7 +1766,7 @@ struct EventView: View {
 
   @ViewBuilder
   private var eventFooter: some View {
-    HStack(spacing: 18) {
+    HStack(spacing: 10) {
       reactionControl
       commentControl
       repostControl
@@ -1778,7 +1787,7 @@ struct EventView: View {
       )
     }
     .buttonStyle(.plain)
-    .disabled(isPublishingReaction || isVisuallyLiked)
+    .disabled(isPublishingReaction)
     .accessibilityLabel(isVisuallyLiked ? "Liked" : "Like")
     .accessibilityValue("\(likeCount) likes")
   }
@@ -1807,14 +1816,14 @@ struct EventView: View {
       publishRepost()
     } label: {
       Image(systemName: "arrow.2.squarepath")
-        .font(.system(size: 20, weight: isVisuallyReposted ? .semibold : .regular))
-        .foregroundColor(isVisuallyReposted ? .green : .secondary)
+        .font(.system(size: 17, weight: isRepostHighlighted ? .semibold : .regular))
+        .foregroundStyle(isRepostHighlighted ? Color.primary : Color.secondary)
         .frame(width: 36, height: 36, alignment: .center)
         .scaleEffect(isPublishingRepost ? 1.08 : 1)
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .disabled(isPublishingRepost || isVisuallyReposted)
+    .disabled(isPublishingRepost)
     .accessibilityLabel(isVisuallyReposted ? "Reposted" : "Repost")
   }
 
@@ -1822,7 +1831,7 @@ struct EventView: View {
   private var shareControl: some View {
     Button(action: openShareSheet) {
       Image(systemName: "paperplane")
-        .font(.system(size: 20, weight: .regular))
+        .font(.system(size: 17, weight: .regular))
         .foregroundColor(.secondary)
         .frame(width: 36, height: 36, alignment: .center)
         .contentShape(Rectangle())
@@ -2619,20 +2628,23 @@ private struct EventCountIconLabel: View {
   let activeColor: Color
 
   var body: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: 2) {
       Image(systemName: isActive ? activeSystemImage : systemImage)
-        .font(.system(size: 20, weight: isActive ? .semibold : .regular))
+        .font(.system(size: 17, weight: isActive ? .semibold : .regular))
         .foregroundStyle(isActive ? activeColor : .secondary)
         .frame(width: 24, height: 24)
+        .offset(y: 1)
 
-      Text(compactCount)
-        .font(.subheadline.weight(isActive ? .semibold : .regular))
-        .monospacedDigit()
-        .foregroundStyle(isActive ? activeColor : .secondary)
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
+      if count > 0 {
+        Text(compactCount)
+          .font(.subheadline.weight(.light))
+          .monospacedDigit()
+          .foregroundStyle(isActive ? activeColor : .secondary)
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
+      }
     }
-    .frame(minWidth: 58, minHeight: 36, maxHeight: 36, alignment: .leading)
+    .frame(minWidth: count > 0 ? 58 : 36, minHeight: 36, maxHeight: 36, alignment: .leading)
     .contentShape(Rectangle())
   }
 
@@ -3365,6 +3377,12 @@ private extension String {
 }
 
 private struct LikeControlLabel: View {
+  private static let likeColor = Color(
+    red: 254.0 / 255.0,
+    green: 1.0 / 255.0,
+    blue: 51.0 / 255.0
+  )
+
   let isLiked: Bool
   let isPublishing: Bool
   let count: Int
@@ -3373,17 +3391,19 @@ private struct LikeControlLabel: View {
   @State private var isPulsing = false
 
   var body: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: 2) {
       heartIcon
 
-      Text(compactCount)
-        .font(.subheadline.weight(isLiked ? .semibold : .regular))
-        .monospacedDigit()
-        .foregroundColor(isLiked ? .red : .secondary)
-        .lineLimit(1)
-        .fixedSize(horizontal: true, vertical: false)
+      if count > 0 {
+        Text(compactCount)
+          .font(.subheadline.weight(.light))
+          .monospacedDigit()
+          .foregroundColor(isLiked ? Self.likeColor : .secondary)
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
+      }
     }
-    .frame(minWidth: 58, minHeight: 36, maxHeight: 36, alignment: .leading)
+    .frame(minWidth: count > 0 ? 58 : 36, minHeight: 36, maxHeight: 36, alignment: .leading)
     .contentShape(Rectangle())
     .onAppear {
       fillAmount = isLiked ? 1 : 0
@@ -3402,12 +3422,12 @@ private struct LikeControlLabel: View {
   private var heartIcon: some View {
     ZStack {
       Image(systemName: "heart")
-        .font(.system(size: 20, weight: .regular))
-        .foregroundColor(isLiked ? .red.opacity(0.35) : .secondary)
+        .font(.system(size: 17, weight: .regular))
+        .foregroundColor(isLiked ? Self.likeColor.opacity(0.35) : .secondary)
 
       Image(systemName: "heart.fill")
-        .font(.system(size: 20, weight: .semibold))
-        .foregroundColor(.red)
+        .font(.system(size: 17, weight: .semibold))
+        .foregroundColor(Self.likeColor)
         .mask {
           GeometryReader { proxy in
             VStack(spacing: 0) {

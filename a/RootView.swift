@@ -13,12 +13,17 @@ struct RootView: View {
   @StateObject var navigation = AppNavigation()
   @StateObject var coordinator: Coordinator = Coordinator()
   @StateObject var keyManager: KeyManager = KeyManager()
+  @StateObject private var foregroundActivityNotifications =
+    ForegroundActivityNotificationCenter()
   @EnvironmentObject var nostrData: NostrData
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.scenePhase) private var scenePhase
   @Query private var userProfiles: [RUserProfile]
   @State private var authenticatingSidebarKey: String?
   @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
   @State private var isSidebarSheetPresented = false
+  @State private var isLaunchCurtainPresented = true
+  @State private var pendingActivityRoute: AppNavigation.Route?
 
   var body: some View {
     ZStack {
@@ -33,6 +38,28 @@ struct RootView: View {
 
       EphemeralNotificationView()
 
+      if let item = foregroundActivityNotifications.currentItem {
+        VStack {
+          ForegroundActivityBanner(
+            item: item,
+            onOpen: { openForegroundActivity(item) },
+            onDismiss: foregroundActivityNotifications.dismissCurrent
+          )
+          .padding(.horizontal, 12)
+          .padding(.top, 8)
+
+          Spacer(minLength: 0)
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .zIndex(2)
+      }
+
+      if isLaunchCurtainPresented {
+        AppLaunchCurtain {
+          isLaunchCurtainPresented = false
+        }
+        .zIndex(1)
+      }
     }
     .navigationSplitViewStyle(.balanced)
     .environmentObject(navigation)
@@ -40,12 +67,25 @@ struct RootView: View {
     .environmentObject(keyManager)
     .onAppear {
       keyManager.loadKeys()
+      foregroundActivityNotifications.configure(nostrData: nostrData)
+      activateForegroundActivityNotifications()
     }
     .onChange(of: selection) { oldSelection, newSelection in
       if oldSelection != newSelection {
         navigation.popToRoot()
       }
+      if let pendingActivityRoute {
+        navigation.push(pendingActivityRoute)
+        self.pendingActivityRoute = nil
+      }
       closeSidebar()
+    }
+    .onChange(of: keyManager.selectedKey) { _, _ in
+      activateForegroundActivityNotifications()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      activateForegroundActivityNotifications()
     }
     .sheet(isPresented: $isSidebarSheetPresented) {
       NavigationStack {
@@ -345,6 +385,33 @@ extension RootView {
   func select(_ page: SelectedView) {
     navigation.popToRoot()
     selection = page
+    closeSidebar()
+  }
+
+  func activateForegroundActivityNotifications() {
+    foregroundActivityNotifications.activate(
+      publicKey: keyManager.publicKeyHex(for: keyManager.selectedKey)
+    )
+  }
+
+  func openForegroundActivity(_ item: ActivityItem) {
+    foregroundActivityNotifications.dismissCurrent()
+
+    let route: AppNavigation.Route
+    switch item.route {
+    case .profile(let publicKey):
+      route = .profile(publicKey: publicKey)
+    case .event(let reference):
+      route = .event(reference: reference)
+    }
+
+    navigation.popToRoot()
+    if selection == .notifications {
+      navigation.push(route)
+    } else {
+      pendingActivityRoute = route
+      selection = .notifications
+    }
     closeSidebar()
   }
 

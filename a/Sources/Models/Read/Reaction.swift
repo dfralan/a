@@ -7,6 +7,13 @@ import SwiftData
 enum ActivityKind: String, Hashable, Sendable {
   case reaction
   case follow
+  case reply
+  case mention
+}
+
+enum ActivityRoute: Hashable, Sendable {
+  case profile(publicKey: String)
+  case event(reference: NostrEventReference)
 }
 
 struct ActivityScope: Hashable, Sendable {
@@ -21,6 +28,18 @@ struct ActivityScope: Hashable, Sendable {
     kinds.contains(.follow)
   }
 
+  var includesReplies: Bool {
+    kinds.contains(.reply)
+  }
+
+  var includesMentions: Bool {
+    kinds.contains(.mention)
+  }
+
+  var includesThreadActivity: Bool {
+    includesReplies || includesMentions
+  }
+
   func includes(_ kind: ActivityKind) -> Bool {
     kinds.contains(kind)
   }
@@ -33,6 +52,8 @@ struct ActivityScope: Hashable, Sendable {
       return item.targetPublicKey == publicKey
         || ownEventIDs.contains(item.relatedEventID ?? "")
     case .follow:
+      return item.targetPublicKey == publicKey
+    case .reply, .mention:
       return item.targetPublicKey == publicKey
     }
   }
@@ -71,6 +92,8 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
   let context: String
   let detail: String?
   let relatedEventID: String?
+  let relatedEventKind: Int?
+  let route: ActivityRoute
 
   var createdAtTimestamp: Int64 {
     Int64(createdAt.timeIntervalSince1970)
@@ -85,7 +108,9 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
     createdAt: Date,
     context: String,
     detail: String?,
-    relatedEventID: String?
+    relatedEventID: String?,
+    relatedEventKind: Int?,
+    route: ActivityRoute
   ) {
     self.id = id
     self.kind = kind
@@ -97,6 +122,8 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
     self.context = context
     self.detail = detail
     self.relatedEventID = relatedEventID
+    self.relatedEventKind = relatedEventKind
+    self.route = route
   }
 
   init(reaction: RReaction, actorProfile: RUserProfile? = nil, targetPublicKey: String? = nil) {
@@ -109,7 +136,9 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
       createdAt: reaction.createdAt,
       context: reaction.isLike ? "liked your post" : "reacted to your post",
       detail: reaction.isLike ? nil : reaction.content,
-      relatedEventID: reaction.reactedEventId
+      relatedEventID: reaction.reactedEventId,
+      relatedEventKind: nil,
+      route: .event(reference: NostrEventReference(id: reaction.reactedEventId))
     )
   }
 
@@ -126,7 +155,45 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
       createdAt: followNotification.createdAt,
       context: "started following you",
       detail: nil,
-      relatedEventID: nil
+      relatedEventID: nil,
+      relatedEventKind: nil,
+      route: .profile(publicKey: followNotification.followerPublicKey)
+    )
+  }
+
+  init?(
+    threadItem: ThreadItem,
+    targetPublicKey: String,
+    actorProfile: RUserProfile? = nil
+  ) {
+    guard threadItem.publicKey != targetPublicKey,
+      let activityKind = Self.threadActivityKind(
+        for: threadItem,
+        targetPublicKey: targetPublicKey
+      )
+    else {
+      return nil
+    }
+
+    self.init(
+      id: "\(activityKind.rawValue):\(threadItem.id)",
+      kind: activityKind,
+      actorPublicKey: threadItem.publicKey,
+      targetPublicKey: targetPublicKey,
+      actorProfile: actorProfile,
+      createdAt: threadItem.createdAt,
+      context: activityKind == .mention ? "mentioned you" : "replied to you",
+      detail: threadItem.content,
+      relatedEventID: threadItem.id,
+      relatedEventKind: threadItem.kind,
+      route: .event(
+        reference: NostrEventReference(
+          id: threadItem.id,
+          relayHints: threadItem.reference.relayHints,
+          kind: threadItem.kind,
+          publicKey: threadItem.publicKey
+        )
+      )
     )
   }
 
@@ -148,6 +215,13 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
 
       let notification = RFollowNotification.create(with: event, targetPublicKey: targetPublicKey)
       self.init(followNotification: notification, actorProfile: actorProfile)
+    case .textNote, .custom(1111):
+      guard let threadItem = ThreadItem(event: event) else { return nil }
+      self.init(
+        threadItem: threadItem,
+        targetPublicKey: targetPublicKey,
+        actorProfile: actorProfile
+      )
     default:
       return nil
     }
@@ -163,8 +237,33 @@ struct ActivityItem: Identifiable, Hashable, Sendable {
       createdAt: createdAt,
       context: context,
       detail: detail,
-      relatedEventID: relatedEventID
+      relatedEventID: relatedEventID,
+      relatedEventKind: relatedEventKind,
+      route: route
     )
+  }
+
+  private static func threadActivityKind(
+    for item: ThreadItem,
+    targetPublicKey: String
+  ) -> ActivityKind? {
+    if NIP27.profileMentionPublicKeys(in: item.content).contains(targetPublicKey) {
+      return .mention
+    }
+
+    guard item.parent != nil else { return nil }
+
+    if item.parent?.publicKey == targetPublicKey {
+      return .reply
+    }
+
+    let directlyTaggedPublicKeys = Set(
+      item.tags
+        .filter { $0.id == "p" }
+        .compactMap { $0.values.first }
+        .filter { !$0.isEmpty }
+    )
+    return directlyTaggedPublicKeys == [targetPublicKey] ? .reply : nil
   }
 }
 

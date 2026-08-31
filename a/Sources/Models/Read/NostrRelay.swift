@@ -80,12 +80,18 @@ struct RelayFollowPersistenceEvent: Sendable {
   let targetPublicKey: String
 }
 
+struct RelayActivityPersistenceEvent: Sendable {
+  let encodedEvent: Data
+  let targetPublicKey: String
+}
+
 struct RelayPersistenceBatch: Sendable {
   let profileEvents: [Data]
   let textNoteEvents: [RelayPersistenceEvent]
   let repostEvents: [RelayPersistenceEvent]
   let reactionEvents: [Data]
   let followEvents: [RelayFollowPersistenceEvent]
+  let threadActivityEvents: [RelayActivityPersistenceEvent]
   let profileFetchedTextNoteIDs: Set<String>
 
   var isEmpty: Bool {
@@ -94,6 +100,7 @@ struct RelayPersistenceBatch: Sendable {
       && repostEvents.isEmpty
       && reactionEvents.isEmpty
       && followEvents.isEmpty
+      && threadActivityEvents.isEmpty
       && profileFetchedTextNoteIDs.isEmpty
   }
 }
@@ -192,6 +199,19 @@ actor RelayPersistenceActor {
       )
     }
 
+    for pendingEvent in batch.threadActivityEvents {
+      guard let event = try? decoder.decode(Event.self, from: pendingEvent.encodedEvent),
+        let item = insertThreadActivityEvent(
+          event,
+          targetPublicKey: pendingEvent.targetPublicKey,
+          profileCache: &profileCache
+        )
+      else {
+        continue
+      }
+      activityItems.append(item)
+    }
+
     do {
       try modelContext.save()
       if !batch.reactionEvents.isEmpty {
@@ -200,6 +220,9 @@ actor RelayPersistenceActor {
       if !batch.followEvents.isEmpty {
         pruneStoredFollowNotifications()
       }
+      if !batch.threadActivityEvents.isEmpty {
+        pruneStoredThreadActivityEvents()
+      }
       return RelayPersistenceResult(
         textNoteSummaries: textNoteSummaries,
         activityItems: activityItems,
@@ -207,7 +230,8 @@ actor RelayPersistenceActor {
           || !batch.textNoteEvents.isEmpty
           || !batch.repostEvents.isEmpty
           || !batch.reactionEvents.isEmpty
-          || !batch.followEvents.isEmpty,
+          || !batch.followEvents.isEmpty
+          || !batch.threadActivityEvents.isEmpty,
         errorDescription: nil
       )
     } catch {
@@ -356,6 +380,29 @@ actor RelayPersistenceActor {
     return notification
   }
 
+  private func insertThreadActivityEvent(
+    _ event: Event,
+    targetPublicKey: String,
+    profileCache: inout [String: RUserProfile]
+  ) -> ActivityItem? {
+    guard let threadItem = ThreadItem(event: event),
+      let activityItem = ActivityItem(
+        threadItem: threadItem,
+        targetPublicKey: targetPublicKey,
+        actorProfile: profileForPublicKey(event.publicKey, profileCache: &profileCache)
+      )
+    else {
+      return nil
+    }
+
+    if !exists(RThreadEvent.self, eventID: event.id),
+      let storedEvent = RThreadEvent(item: threadItem)
+    {
+      modelContext.insert(storedEvent)
+    }
+    return activityItem
+  }
+
   private func textNote(eventID: String) -> RTextNote? {
     let targetEventID = eventID
     var descriptor = FetchDescriptor<RTextNote>(
@@ -385,6 +432,14 @@ actor RelayPersistenceActor {
     if type == RFollowNotification.self {
       let targetEventID = eventID
       var descriptor = FetchDescriptor<RFollowNotification>(
+        predicate: #Predicate { $0.eventId == targetEventID }
+      )
+      descriptor.fetchLimit = 1
+      return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
+    }
+    if type == RThreadEvent.self {
+      let targetEventID = eventID
+      var descriptor = FetchDescriptor<RThreadEvent>(
         predicate: #Predicate { $0.eventId == targetEventID }
       )
       descriptor.fetchLimit = 1
@@ -448,6 +503,22 @@ actor RelayPersistenceActor {
     }
     try? modelContext.save()
   }
+
+  private func pruneStoredThreadActivityEvents() {
+    var descriptor = FetchDescriptor<RThreadEvent>(
+      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+    )
+    descriptor.fetchLimit = Self.maxStoredActivityItems + Self.pruneBatchSize
+    guard let events = try? modelContext.fetch(descriptor),
+      events.count > Self.maxStoredActivityItems
+    else {
+      return
+    }
+    for event in events.dropFirst(Self.maxStoredActivityItems) {
+      modelContext.delete(event)
+    }
+    try? modelContext.save()
+  }
 }
 
 final class NostrRelay: NSObject, @unchecked Sendable {
@@ -466,7 +537,6 @@ final class NostrRelay: NSObject, @unchecked Sendable {
   private static let profileSubscriptionLimit = 160
   private static let activitySubscriptionLimit = 100
   private static let maxActivitySubscriptions = 4
-  private static let activitySubscriptionTimeout: TimeInterval = 12
   private static let activityPageTimeout: TimeInterval = 10
   private static let profileTextNoteSubscriptionLimit = 80
   private static let maxProfileTextNoteSubscriptions = 8
@@ -532,6 +602,7 @@ final class NostrRelay: NSObject, @unchecked Sendable {
   private var pendingProfileEvents: [Event] = []
   private var pendingReactionEvents: [Event] = []
   private var pendingFollowNotificationEvents: [FollowNotificationEvent] = []
+  private var pendingThreadActivityEvents: [PendingThreadActivityEvent] = []
   private var profileFetchedTextNoteIDs = Set<String>()
   private var flushWorkItem: DispatchWorkItem?
   private var profileRefreshWorkItem: DispatchWorkItem?
@@ -921,7 +992,7 @@ final class NostrRelay: NSObject, @unchecked Sendable {
   }
 
   func subscribeActivity(forPublicKey publicKey: String) {
-    unsubscribeActivity(forPublicKey: publicKey)
+    unsubscribeActivityForAll()
 
     let subscription = Subscription(filters: [
       .init(
@@ -931,6 +1002,11 @@ final class NostrRelay: NSObject, @unchecked Sendable {
       ),
       .init(
         eventKinds: [.custom(3)],
+        pubKeyTags: [publicKey],
+        limit: Self.activitySubscriptionLimit
+      ),
+      .init(
+        eventKinds: [.textNote, .custom(1111)],
         pubKeyTags: [publicKey],
         limit: Self.activitySubscriptionLimit
       ),
@@ -945,7 +1021,6 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     }
 
     sendSubscribe(subscription)
-    scheduleActivityTimeout(subscriptionID: subscription.id)
   }
 
   func subscribeOlderActivityItems(
@@ -972,6 +1047,17 @@ final class NostrRelay: NSObject, @unchecked Sendable {
       filters.append(
         .init(
           eventKinds: [.custom(3)],
+          pubKeyTags: [scope.publicKey],
+          until: until,
+          limit: limit
+        )
+      )
+    }
+
+    if scope.includesThreadActivity {
+      filters.append(
+        .init(
+          eventKinds: [.textNote, .custom(1111)],
           pubKeyTags: [scope.publicKey],
           until: until,
           limit: limit
@@ -1027,19 +1113,6 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     sub.completion(items)
   }
 
-  private func scheduleActivityTimeout(subscriptionID: String) {
-    DispatchQueue.main.asyncAfter(deadline: .now() + Self.activitySubscriptionTimeout) { [weak self] in
-      guard let self,
-        self.activitySubs.contains(where: { $0.subscription.id == subscriptionID })
-      else {
-        return
-      }
-
-      self.flushPendingEvents()
-      self.unsubscribeActivity(withId: subscriptionID)
-    }
-  }
-
   private func activityTargetPublicKey(for subscriptionID: String, event: Event) -> String? {
     guard let activitySub = activitySubs.first(where: { $0.subscription.id == subscriptionID }),
       event.tags.contains(where: {
@@ -1062,25 +1135,6 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     }
 
     return activityPageSub.scope.publicKey
-  }
-
-  private func unsubscribeActivity(forPublicKey publicKey: String) {
-    let matchingSubs = activitySubs.filter { $0.publicKey == publicKey }
-    activitySubs.removeAll { $0.publicKey == publicKey }
-
-    for sub in matchingSubs {
-      unsubscribe(subscriptionID: sub.subscription.id)
-    }
-  }
-
-  private func unsubscribeActivity(withId subscriptionID: String) {
-    guard let index = activitySubs.firstIndex(where: { $0.subscription.id == subscriptionID })
-    else {
-      return
-    }
-
-    let sub = activitySubs.remove(at: index)
-    unsubscribe(subscriptionID: sub.subscription.id)
   }
 
   private func unsubscribeActivityForAll() {
@@ -1900,6 +1954,11 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     let origin: PersistedTextNoteSummary.Origin
   }
 
+  private struct PendingThreadActivityEvent {
+    let event: Event
+    let targetPublicKey: String
+  }
+
   func subscribeContactList(forPublicKey publicKey: String) {
     if connected {
 
@@ -2048,6 +2107,7 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     pendingRepostEvents.removeAll()
     pendingReactionEvents.removeAll()
     pendingFollowNotificationEvents.removeAll()
+    pendingThreadActivityEvents.removeAll()
     profileFetchedTextNoteIDs.removeAll()
     activitySubs.removeAll()
     profileTextNoteSubs.removeAll()
@@ -2191,6 +2251,19 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     scheduleFlush(immediate: pendingFollowNotificationEvents.count >= Self.writeBatchSize)
   }
 
+  private func enqueueThreadActivityEvent(_ event: Event, targetPublicKey: String) {
+    pendingThreadActivityEvents.append(
+      PendingThreadActivityEvent(event: event, targetPublicKey: targetPublicKey)
+    )
+    if pendingThreadActivityEvents.count > Self.maxBufferedReactions {
+      pendingThreadActivityEvents.removeFirst(
+        pendingThreadActivityEvents.count - Self.maxBufferedReactions
+      )
+    }
+
+    scheduleFlush(immediate: pendingThreadActivityEvents.count >= Self.writeBatchSize)
+  }
+
   private func scheduleFlush(immediate: Bool = false) {
     flushWorkItem?.cancel()
 
@@ -2221,16 +2294,19 @@ final class NostrRelay: NSObject, @unchecked Sendable {
     let repostEvents = pendingRepostEvents
     let reactionEvents = pendingReactionEvents
     let followNotificationEvents = pendingFollowNotificationEvents
+    let threadActivityEvents = pendingThreadActivityEvents
     let profileFetchedTextNoteIDs = self.profileFetchedTextNoteIDs
     pendingProfileEvents.removeAll()
     pendingTextNoteEvents.removeAll()
     pendingRepostEvents.removeAll()
     pendingReactionEvents.removeAll()
     pendingFollowNotificationEvents.removeAll()
+    pendingThreadActivityEvents.removeAll()
     self.profileFetchedTextNoteIDs.removeAll()
 
-    guard !profileEvents.isEmpty || !textNoteEvents.isEmpty || !repostEvents.isEmpty || !reactionEvents.isEmpty
-      || !followNotificationEvents.isEmpty || !profileFetchedTextNoteIDs.isEmpty
+    guard !profileEvents.isEmpty || !textNoteEvents.isEmpty || !repostEvents.isEmpty
+      || !reactionEvents.isEmpty || !followNotificationEvents.isEmpty
+      || !threadActivityEvents.isEmpty || !profileFetchedTextNoteIDs.isEmpty
     else {
       return
     }
@@ -2250,6 +2326,13 @@ final class NostrRelay: NSObject, @unchecked Sendable {
       followEvents: followNotificationEvents.compactMap { pendingEvent in
         guard let data = try? encoder.encode(pendingEvent.event) else { return nil }
         return RelayFollowPersistenceEvent(
+          encodedEvent: data,
+          targetPublicKey: pendingEvent.targetPublicKey
+        )
+      },
+      threadActivityEvents: threadActivityEvents.compactMap { pendingEvent in
+        guard let data = try? encoder.encode(pendingEvent.event) else { return nil }
+        return RelayActivityPersistenceEvent(
           encodedEvent: data,
           targetPublicKey: pendingEvent.targetPublicKey
         )
@@ -2462,6 +2545,19 @@ final class NostrRelay: NSObject, @unchecked Sendable {
         enqueueProfileEvent(event)
 
       case .textNote:
+        if let targetPublicKey = activityTargetPublicKey(for: id, event: event) {
+          enqueueThreadActivityEvent(event, targetPublicKey: targetPublicKey)
+        }
+        if let targetPublicKey = activityPageTargetPublicKey(for: id, event: event),
+          let pageIndex = activityPageSubs.firstIndex(where: { $0.subscription.id == id }),
+          activityPageSubs[pageIndex].scope.includesThreadActivity,
+          let item = ActivityItem(event: event, targetPublicKey: targetPublicKey),
+          activityPageSubs[pageIndex].scope.includes(item.kind)
+        {
+          activityPageSubs[pageIndex].receivedEvents.append(event)
+          enqueueThreadActivityEvent(event, targetPublicKey: targetPublicKey)
+        }
+
         let eventDate = Date(timeIntervalSince1970: Double(event.createdAt.timestamp))
         guard TextNoteFeedPolicy.accepts(createdAt: eventDate) else { return }
 
@@ -2580,6 +2676,19 @@ final class NostrRelay: NSObject, @unchecked Sendable {
 
 	          guard NostrEventIngestionGate.shared.claim(event.id) else { return }
 	          enqueueReactionEvent(event)
+        } else if kind == 1111 {
+          if let targetPublicKey = activityTargetPublicKey(for: id, event: event) {
+            enqueueThreadActivityEvent(event, targetPublicKey: targetPublicKey)
+          }
+          if let targetPublicKey = activityPageTargetPublicKey(for: id, event: event),
+            let pageIndex = activityPageSubs.firstIndex(where: { $0.subscription.id == id }),
+            activityPageSubs[pageIndex].scope.includesThreadActivity,
+            let item = ActivityItem(event: event, targetPublicKey: targetPublicKey),
+            activityPageSubs[pageIndex].scope.includes(item.kind)
+          {
+            activityPageSubs[pageIndex].receivedEvents.append(event)
+            enqueueThreadActivityEvent(event, targetPublicKey: targetPublicKey)
+          }
         }
       }
     case .notice(let notice):
@@ -2666,7 +2775,6 @@ final class NostrRelay: NSObject, @unchecked Sendable {
 	          if self.activitySubs.contains(where: { $0.subscription.id == subscriptionId }) {
 	            self.flushPendingEvents()
 	            self.scheduleProfileRefresh()
-	            self.unsubscribeActivity(withId: subscriptionId)
 	          }
 
 	          // MARK: - Handle activity page EOSE
