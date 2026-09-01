@@ -172,7 +172,7 @@ struct FeedEventView: View {
     VStack(alignment: .leading, spacing: 8) {
       repostLegend
 
-      HStack(alignment: .top, spacing: 12) {
+      HStack(alignment: .top, spacing: 6) {
         avatarButton
 
         VStack(alignment: .leading, spacing: 8) {
@@ -582,6 +582,10 @@ struct FeedEventView: View {
 
   @ViewBuilder
   private var mediaContent: some View {
+    if let linkPreview = presentation.linkPreview {
+      LinkPreviewCard(descriptor: linkPreview)
+    }
+
     if let videoUrl = presentation.videoUrl {
       if shouldLoadAttachment(videoUrl) {
         let mediaItem = EventFullscreenMediaItem.video(url: videoUrl)
@@ -908,7 +912,6 @@ struct FeedEventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP25.reaction(
         eventID: event.id,
         publicKey: event.pubkey,
@@ -917,7 +920,7 @@ struct FeedEventView: View {
         relayHint: event.threadTarget.focused.primaryRelayHint,
         address: eventAddress
       )
-      let reactionEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let reactionEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       withAnimation(.spring(response: 0.16, dampingFraction: 0.62)) {
         pendingReactionEventID = reactionEvent.event.id
@@ -951,14 +954,13 @@ struct FeedEventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP18.repost(
         eventID: event.id,
         publicKey: event.pubkey,
         eventKind: event.kind,
         relayHint: event.threadTarget.focused.primaryRelayHint
       )
-      let repostEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let repostEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       withAnimation(.spring(response: 0.16, dampingFraction: 0.7)) {
         pendingRepostEventID = repostEvent.event.id
@@ -1136,14 +1138,13 @@ struct FeedEventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP56.report(
         eventID: event.id,
         publicKey: event.pubkey,
         type: type,
         note: reportNote(type: type, note: note)
       )
-      let reportEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let reportEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       isPublishingReport = true
       publishReport(reportEvent, to: relayUrls)
@@ -1493,7 +1494,7 @@ struct EventView: View {
   private var eventLayout: some View {
     switch layout {
     case .standard:
-      HStack(alignment: .top, spacing: 12) {
+      HStack(alignment: .top, spacing: 0) {
         avatarButton
 
         VStack(alignment: .leading, spacing: 8) {
@@ -1505,7 +1506,7 @@ struct EventView: View {
 
     case .threadFocus:
       VStack(alignment: .leading, spacing: 12) {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 0) {
           avatarButton
           authorHeader
         }
@@ -1907,6 +1908,10 @@ struct EventView: View {
 
   @ViewBuilder
   private var mediaContent: some View {
+    if let linkPreview = presentation.linkPreview {
+      LinkPreviewCard(descriptor: linkPreview)
+    }
+
     if let videoUrl = presentation.videoUrl {
       if shouldLoadAttachment(videoUrl) {
         let mediaItem = EventFullscreenMediaItem.video(url: videoUrl)
@@ -2153,7 +2158,6 @@ struct EventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP25.reaction(
         eventID: event.id,
         publicKey: event.pubkey,
@@ -2162,7 +2166,7 @@ struct EventView: View {
         relayHint: event.threadTarget.focused.primaryRelayHint,
         address: eventAddress
       )
-      let reactionEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let reactionEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       withAnimation(.spring(response: 0.16, dampingFraction: 0.62)) {
         pendingReactionEventID = reactionEvent.event.id
@@ -2196,14 +2200,13 @@ struct EventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP18.repost(
         eventID: event.id,
         publicKey: event.pubkey,
         eventKind: event.kind,
         relayHint: event.threadTarget.focused.primaryRelayHint
       )
-      let repostEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let repostEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       withAnimation(.spring(response: 0.16, dampingFraction: 0.7)) {
         pendingRepostEventID = repostEvent.event.id
@@ -2381,14 +2384,13 @@ struct EventView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP56.report(
         eventID: event.id,
         publicKey: event.pubkey,
         type: type,
         note: reportNote(type: type, note: note)
       )
-      let reportEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let reportEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       isPublishingReport = true
       publishReport(reportEvent, to: relayUrls)
@@ -3488,6 +3490,7 @@ struct EventPresentationModel {
   let contentWithoutImageLinks: AttributedString?
   let imageUrls: [URL]
   let videoUrl: URL?
+  let linkPreview: LinkPreviewDescriptor?
 }
 
 private final class EventPresentationBox {
@@ -3539,7 +3542,8 @@ final class EventRenderCache {
         contentFormatted: nil,
         contentWithoutImageLinks: nil,
         imageUrls: [],
-        videoUrl: nil
+        videoUrl: nil,
+        linkPreview: nil
       )
     }
 
@@ -3554,7 +3558,8 @@ final class EventRenderCache {
         contentFormatted: nil,
         contentWithoutImageLinks: nil,
         imageUrls: [],
-        videoUrl: nil
+        videoUrl: nil,
+        linkPreview: nil
       )
     }
 
@@ -3562,6 +3567,7 @@ final class EventRenderCache {
     var contentWithoutImageLinks = AttributedString()
     var imageUrls: [URL] = []
     var videoUrl: URL?
+    var linkPreview: LinkPreviewDescriptor?
 
     for run in attributed.runs {
       let slice = attributed[run.range]
@@ -3579,6 +3585,13 @@ final class EventRenderCache {
 
       if videoUrl == nil, absoluteURL.isVideoType() {
         videoUrl = absoluteURL
+        contentWithoutImageLinks.append(slice)
+        continue
+      }
+
+      if linkPreview == nil, let detectedLink = LinkPreviewDescriptor.detect(url: absoluteURL) {
+        linkPreview = detectedLink
+        continue
       }
 
       contentWithoutImageLinks.append(slice)
@@ -3588,7 +3601,8 @@ final class EventRenderCache {
       contentFormatted: attributed,
       contentWithoutImageLinks: contentWithoutImageLinks,
       imageUrls: imageUrls,
-      videoUrl: videoUrl
+      videoUrl: videoUrl,
+      linkPreview: linkPreview
     )
   }
 

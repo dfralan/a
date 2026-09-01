@@ -10,6 +10,8 @@
 		00B66C012EB70000007FF8F2 /* ThreadProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B66C002EB70000007FF8F2 /* ThreadProtocolTests.swift */; };
 		00B66D112EB80000007FF8F2 /* ProfileSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B66D102EB80000007FF8F2 /* ProfileSearchTests.swift */; };
 		00B66E112EB90000007FF8F2 /* HomeFeedBackpressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B66E102EB90000007FF8F2 /* HomeFeedBackpressureTests.swift */; };
+		00B66F012EBA0000007FF8F2 /* LinkPreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B66F002EBA0000007FF8F2 /* LinkPreviewCard.swift */; };
+		00B66F112EBA0000007FF8F2 /* LinkPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B66F102EBA0000007FF8F2 /* LinkPreviewTests.swift */; };
 		00B66A4B2EAFBD86007FF8F2 /* incognito.png in Resources */ = {isa = PBXBuildFile; fileRef = 00B66A1D2EAFBD86007FF8F2 /* incognito.png */; };
 		00B66A4C2EAFBD86007FF8F2 /* head-15.png in Resources */ = {isa = PBXBuildFile; fileRef = 00B66A1C2EAFBD86007FF8F2 /* head-15.png */; };
 		00B66A4D2EAFBD86007FF8F2 /* hh-18.png in Resources */ = {isa = PBXBuildFile; fileRef = 00B66A312EAFBD86007FF8F2 /* hh-18.png */; };
@@ -284,6 +286,8 @@
 		00B66C022EB70000007FF8F2 /* aTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = aTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00B66D102EB80000007FF8F2 /* ProfileSearchTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ProfileSearchTests.swift; sourceTree = "<group>"; };
 		00B66E102EB90000007FF8F2 /* HomeFeedBackpressureTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HomeFeedBackpressureTests.swift; sourceTree = "<group>"; };
+		00B66F002EBA0000007FF8F2 /* LinkPreviewCard.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LinkPreviewCard.swift; sourceTree = "<group>"; };
+		00B66F102EBA0000007FF8F2 /* LinkPreviewTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LinkPreviewTests.swift; sourceTree = "<group>"; };
 		00B669E42EAFBD86007FF8F2 /* acc-00.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "acc-00.png"; sourceTree = "<group>"; };
 		00B669E52EAFBD86007FF8F2 /* acc-01.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "acc-01.png"; sourceTree = "<group>"; };
 		00B669E62EAFBD86007FF8F2 /* acc-02.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "acc-02.png"; sourceTree = "<group>"; };
@@ -801,6 +805,7 @@
 			children = (
 				14CDB1BC2A046377003D6787 /* EventView.swift */,
 				14CDB13A2A046375003D6787 /* EventCounterView.swift */,
+				00B66F002EBA0000007FF8F2 /* LinkPreviewCard.swift */,
 			);
 			path = Event;
 			sourceTree = "<group>";
@@ -882,6 +887,7 @@
 				00B66C002EB70000007FF8F2 /* ThreadProtocolTests.swift */,
 				00B66D102EB80000007FF8F2 /* ProfileSearchTests.swift */,
 				00B66E102EB90000007FF8F2 /* HomeFeedBackpressureTests.swift */,
+				00B66F102EBA0000007FF8F2 /* LinkPreviewTests.swift */,
 			);
 			path = aTests;
 			sourceTree = "<group>";
@@ -1560,6 +1566,7 @@
 				00B66C012EB70000007FF8F2 /* ThreadProtocolTests.swift in Sources */,
 				00B66D112EB80000007FF8F2 /* ProfileSearchTests.swift in Sources */,
 				00B66E112EB90000007FF8F2 /* HomeFeedBackpressureTests.swift in Sources */,
+				00B66F112EBA0000007FF8F2 /* LinkPreviewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1624,6 +1631,7 @@
 				14CDB2652A046378003D6787 /* ChatView.swift in Sources */,
 				14CDB1182A045B41003D6787 /* Keys.swift in Sources */,
 				14CDB2622A046378003D6787 /* EventView.swift in Sources */,
+				00B66F012EBA0000007FF8F2 /* LinkPreviewCard.swift in Sources */,
 				14CDB2672A046378003D6787 /* NewChat.swift in Sources */,
 				14CDB25E2A046378003D6787 /* TextAreaNewEventView.swift in Sources */,
 				14CDB2592A046378003D6787 /* TextNote.swift in Sources */,

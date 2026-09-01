@@ -268,14 +268,13 @@ struct EditProfileView: View {
 
     do {
       isSaving = true
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP01.profileMetadata(
         name: normalizedUsername,
         about: normalizedAbout,
         picture: userProfile.picture,
         nip05: normalizedNIP05
       )
-      let profileEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let profileEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       publish(profileEvent, to: relayUrls)
     } catch {

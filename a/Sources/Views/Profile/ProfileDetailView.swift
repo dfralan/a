@@ -481,9 +481,8 @@ struct ProfileDetailView: View {
     }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let draft = NIP02.followList(followedPublicKeys: updatedFollowPublicKeys(shouldFollow: shouldFollow))
-      let followEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+      let followEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
 
       isPublishingFollow = true
       publishFollow(

@@ -37,13 +37,18 @@ struct NewEventView: View {
                         await postEvent()
                     }
                 } label: {
-                    if isPosting {
-                        ProgressView()
-                    } else {
+                    ZStack {
                         Text("Post")
+                            .opacity(isPosting ? 0 : 1)
+
+                        if isPosting {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.secondary)
+                        }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ComposerPostButtonStyle())
                 .disabled(!hasPostContent || isPosting)
             }
             ScrollView {
@@ -135,13 +140,12 @@ struct NewEventView: View {
 
         do {
             isPosting = true
-            let keyPair = try KeyPair(privateKey: privateKeyHex)
             let draft = NIP01.textNote(
                 content: trimmedEventContent,
                 isSensitive: includeSensitiveContent,
                 sensitiveReason: sensitiveContentReason
             )
-            let postEvent = try PostEventContent(keyPair: keyPair, draft: draft)
+            let postEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
             let fallbackPostEvent: PostEventContent?
 
             if draft.nips.contains(.nip27) {
@@ -151,7 +155,10 @@ struct NewEventView: View {
                     sensitiveReason: sensitiveContentReason,
                     parseProfileMentions: false
                 )
-                fallbackPostEvent = try PostEventContent(keyPair: keyPair, draft: fallbackDraft)
+                fallbackPostEvent = try PostEventContent(
+                    privateKeyHex: privateKeyHex,
+                    draft: fallbackDraft
+                )
             } else {
                 fallbackPostEvent = nil
             }
@@ -184,7 +191,12 @@ struct NewEventView: View {
         var completedCount = 0
         var failedCount = 0
         var didPersistAcceptedEvent = false
+        var didCompleteComposer = false
         var firstFailureMessage: String?
+
+        print(
+            "[Post] SEND event=\(postEvent.event.id.prefix(8)) relays=\(relayUrls.count) contentLength=\(postEvent.content.count)"
+        )
 
         for relayUrl in relayUrls {
             postEvent.sendToNostr(relayUrl: relayUrl) { result in
@@ -193,67 +205,65 @@ struct NewEventView: View {
 
                     switch result {
                     case .success:
+                        print(
+                            "[Post] ACCEPT event=\(postEvent.event.id.prefix(8)) relay=\(relayUrl.absoluteString)"
+                        )
                         if !didPersistAcceptedEvent {
                             didPersistAcceptedEvent = NostrData.shared.persistPublishedTextNote(
                                 postEvent.event
                             )
                         }
+
+                        if !didCompleteComposer {
+                            didCompleteComposer = true
+                            finishPostingSuccess()
+                        }
                     case .failure(let error):
                         failedCount += 1
+                        print(
+                            "[Post] REJECT event=\(postEvent.event.id.prefix(8)) relay=\(relayUrl.absoluteString) reason=\(shortErrorMessage(error))"
+                        )
                         if firstFailureMessage == nil {
                             firstFailureMessage = shortErrorMessage(error)
                         }
                     }
 
                     guard completedCount == relayUrls.count else { return }
+                    guard !didCompleteComposer else { return }
+
                     if failedCount == relayUrls.count, let fallbackPostEvent {
+                        print("[Post] RETRY event=\(postEvent.event.id.prefix(8)) mode=plain-text")
                         publish(fallbackPostEvent, to: relayUrls)
                         return
                     }
 
-                    finishPosting(
-                        relayCount: relayUrls.count,
-                        failedCount: failedCount,
-                        didPersistAcceptedEvent: didPersistAcceptedEvent,
-                        firstFailureMessage: firstFailureMessage
-                    )
+                    finishPostingFailure(firstFailureMessage: firstFailureMessage)
                 }
             }
         }
     }
 
     @MainActor
-    private func finishPosting(
-        relayCount: Int,
-        failedCount: Int,
-        didPersistAcceptedEvent: Bool,
-        firstFailureMessage: String?
-    ) {
+    private func finishPostingSuccess() {
         isPosting = false
-
-        guard failedCount < relayCount else {
-            savePendingPost()
-            if let firstFailureMessage {
-                EfimerousManager.shared.showMessage("Post saved. \(firstFailureMessage)")
-            } else {
-                EfimerousManager.shared.showMessage("Post saved to retry")
-            }
-            return
-        }
-
-        let postedRelayCount = relayCount - failedCount
-        if didPersistAcceptedEvent {
-            EfimerousManager.shared.showMessage(
-                postedRelayCount == 1 ? "Posted" : "Posted to \(postedRelayCount) relays"
-            )
-        } else {
-            EfimerousManager.shared.showMessage("Posted. Feed sync is pending")
-        }
+        EfimerousManager.shared.showMessage("Posted")
 
         newEvent = ""
         includeSensitiveContent = false
         sensitiveContentReason = ""
         presentationMode.wrappedValue.dismiss()
+    }
+
+    @MainActor
+    private func finishPostingFailure(firstFailureMessage: String?) {
+        isPosting = false
+        savePendingPost()
+
+        if let firstFailureMessage {
+            EfimerousManager.shared.showMessage("Post saved. \(firstFailureMessage)")
+        } else {
+            EfimerousManager.shared.showMessage("Post saved to retry")
+        }
     }
 
     @discardableResult
@@ -284,6 +294,27 @@ struct NewEventView: View {
         }
 
         return "\(message.prefix(140))..."
+    }
+}
+
+private struct ComposerPostButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(
+                isEnabled ? Color(uiColor: .systemBackground) : Color(uiColor: .secondaryLabel)
+            )
+            .frame(minWidth: 58, minHeight: 34)
+            .padding(.horizontal, 4)
+            .background(
+                isEnabled ? Color.primary : Color(uiColor: .secondarySystemFill),
+                in: Capsule()
+            )
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

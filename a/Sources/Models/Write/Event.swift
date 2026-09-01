@@ -3,6 +3,158 @@ import CryptoKit
 import NostrKit
 import SwiftData
 import SwiftUI
+import secp256k1
+
+enum NostrEventSigningError: LocalizedError {
+  case invalidPrivateKey
+  case invalidEvent
+  case signingFailed
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidPrivateKey:
+      return "The private key is invalid"
+    case .invalidEvent:
+      return "The event could not be encoded"
+    case .signingFailed:
+      return "The event could not be signed"
+    }
+  }
+}
+
+enum NostrCanonicalJSON {
+  static func encode<T: Encodable>(_ value: T) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.withoutEscapingSlashes]
+    return try encoder.encode(value)
+  }
+}
+
+struct NostrSerializableEvent: Encodable {
+  let id = 0
+  let publicKey: String
+  let createdAt: Timestamp
+  let kind: EventKind
+  let tags: [EventTag]
+  let content: String
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.unkeyedContainer()
+    try container.encode(id)
+    try container.encode(publicKey)
+    try container.encode(createdAt)
+    try container.encode(kind)
+    try container.encode(tags)
+    try container.encode(content)
+  }
+}
+
+private struct NostrSignedEvent: Codable {
+  let id: String
+  let publicKey: String
+  let createdAt: Timestamp
+  let kind: EventKind
+  let tags: [EventTag]
+  let content: String
+  let signature: String
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case publicKey = "pubkey"
+    case createdAt = "created_at"
+    case kind
+    case tags
+    case content
+    case signature = "sig"
+  }
+}
+
+enum NostrEventFactory {
+  private static let maxTimestampJitter = 60 * 60 * 24 * 2
+
+  static func randomPastTimestamp() -> Timestamp {
+    let jitter = Int.random(in: 0...maxTimestampJitter)
+    return Timestamp(date: Date().addingTimeInterval(-Double(jitter)))
+  }
+
+  static func signedEvent(
+    privateKeyHex: String,
+    kind: EventKind,
+    tags: [EventTag],
+    content: String,
+    createdAt: Timestamp
+  ) throws -> Event {
+    guard let privateKeyBytes = hex_decode(privateKeyHex), privateKeyBytes.count == 32 else {
+      throw NostrEventSigningError.invalidPrivateKey
+    }
+
+    let privateKey = try secp256k1.Signing.PrivateKey(
+      rawRepresentation: Data(privateKeyBytes)
+    )
+    let publicKey = hex_encode(Data(privateKey.publicKey.xonly.bytes))
+    let serializableEvent = NostrSerializableEvent(
+      publicKey: publicKey,
+      createdAt: createdAt,
+      kind: kind,
+      tags: tags,
+      content: content
+    )
+    let serializedEvent = try NostrCanonicalJSON.encode(serializableEvent)
+    let eventID = hex_encode(Data(CryptoKit.SHA256.hash(data: serializedEvent)))
+    let signature = try privateKey.schnorr.signature(for: serializedEvent)
+
+    guard privateKey.publicKey.schnorr.isValidSignature(signature, for: serializedEvent) else {
+      throw NostrEventSigningError.signingFailed
+    }
+
+    let signedEvent = NostrSignedEvent(
+      id: eventID,
+      publicKey: publicKey,
+      createdAt: createdAt,
+      kind: kind,
+      tags: tags,
+      content: content,
+      signature: hex_encode(signature.rawRepresentation)
+    )
+    let signedEventJSON = try NostrCanonicalJSON.encode(signedEvent)
+
+    guard let event = try? JSONDecoder().decode(Event.self, from: signedEventJSON) else {
+      throw NostrEventSigningError.invalidEvent
+    }
+    return event
+  }
+
+  static func validateEventSignature(_ event: Event) throws {
+    let serializableEvent = NostrSerializableEvent(
+      publicKey: event.publicKey,
+      createdAt: event.createdAt,
+      kind: event.kind,
+      tags: event.tags,
+      content: event.content
+    )
+    let serializedEvent = try NostrCanonicalJSON.encode(serializableEvent)
+    let eventID = hex_encode(Data(CryptoKit.SHA256.hash(data: serializedEvent)))
+    guard eventID == event.id,
+      let publicKeyBytes = hex_decode(event.publicKey), publicKeyBytes.count == 32,
+      let signatureBytes = hex_decode(event.signature), signatureBytes.count == 64
+    else {
+      throw NostrEventSigningError.invalidEvent
+    }
+
+    var compressedPublicKey = Data([0x02])
+    compressedPublicKey.append(contentsOf: publicKeyBytes)
+    let publicKey = try secp256k1.Signing.PublicKey(
+      rawRepresentation: compressedPublicKey,
+      format: .compressed
+    )
+    let signature = try secp256k1.Signing.SchnorrSignature(
+      rawRepresentation: Data(signatureBytes)
+    )
+    guard publicKey.schnorr.isValidSignature(signature, for: serializedEvent) else {
+      throw NostrEventSigningError.signingFailed
+    }
+  }
+}
 
 struct NostrWriteEventDraft {
   let kind: EventKind
@@ -1643,7 +1795,7 @@ enum NIP02 {
 enum NostrPublishError: LocalizedError {
   case relayRejected(URL, String)
   case relayTimeout(URL)
-  case unexpectedRelayResponse(URL)
+  case relayClosed(URL, String)
 
   var errorDescription: String? {
     switch self {
@@ -1651,8 +1803,8 @@ enum NostrPublishError: LocalizedError {
       return "\(relayURL.absoluteString) rejected the event: \(message)"
     case .relayTimeout(let relayURL):
       return "\(relayURL.absoluteString) did not confirm the event"
-    case .unexpectedRelayResponse(let relayURL):
-      return "\(relayURL.absoluteString) returned an unexpected response"
+    case .relayClosed(let relayURL, let reason):
+      return "\(relayURL.absoluteString) closed the connection: \(reason)"
     }
   }
 }
@@ -1678,6 +1830,157 @@ private struct NIP01RelayOK {
     self.accepted = accepted
     self.message = message
   }
+
+  var confirmsStoredEvent: Bool {
+    guard !accepted else { return true }
+
+    let normalizedMessage = message.lowercased()
+    return normalizedMessage.contains("duplicate")
+      || normalizedMessage.contains("already")
+      || normalizedMessage.contains("have this event")
+  }
+}
+
+private final class NostrEventPublishOperation: NSObject, URLSessionWebSocketDelegate {
+  private let event: Event
+  private let relayURL: URL
+  private let completion: (Result<URL, Error>) -> Void
+  private let stateQueue = DispatchQueue(label: "nostr.event.publish.state.\(UUID().uuidString)")
+
+  private var session: URLSession?
+  private var webSocketTask: URLSessionWebSocketTask?
+  private var timeoutWorkItem: DispatchWorkItem?
+  private var didComplete = false
+
+  init(
+    event: Event,
+    relayURL: URL,
+    completion: @escaping (Result<URL, Error>) -> Void
+  ) {
+    self.event = event
+    self.relayURL = relayURL
+    self.completion = completion
+  }
+
+  func start() {
+    let session = URLSession(
+      configuration: .ephemeral,
+      delegate: self,
+      delegateQueue: nil
+    )
+    let webSocketTask = session.webSocketTask(with: relayURL)
+    self.session = session
+    self.webSocketTask = webSocketTask
+
+    let timeoutWorkItem = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      finish(.failure(NostrPublishError.relayTimeout(relayURL)))
+    }
+    self.timeoutWorkItem = timeoutWorkItem
+
+    webSocketTask.resume()
+    DispatchQueue.global(qos: .utility).asyncAfter(
+      deadline: .now() + 10,
+      execute: timeoutWorkItem
+    )
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    webSocketTask: URLSessionWebSocketTask,
+    didOpenWithProtocol protocol: String?
+  ) {
+    receiveNext()
+
+    do {
+      let message = try ClientMessage.event(event).string()
+      webSocketTask.send(.string(message)) { [weak self] error in
+        guard let self, let error else { return }
+        finish(.failure(error))
+      }
+    } catch {
+      finish(.failure(error))
+    }
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    webSocketTask: URLSessionWebSocketTask,
+    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+    reason: Data?
+  ) {
+    let reasonText = reason
+      .flatMap { String(data: $0, encoding: .utf8) }
+      .flatMap { $0.isEmpty ? nil : $0 }
+      ?? "code \(closeCode.rawValue)"
+    finish(.failure(NostrPublishError.relayClosed(relayURL, reasonText)))
+  }
+
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didCompleteWithError error: Error?
+  ) {
+    guard let error else { return }
+    finish(.failure(error))
+  }
+
+  private func receiveNext() {
+    guard let webSocketTask else { return }
+
+    webSocketTask.receive { [weak self] result in
+      guard let self else { return }
+
+      switch result {
+      case .success(let message):
+        switch message {
+        case .string(let text):
+          handleRelayMessage(text)
+        case .data(let data):
+          if let text = String(data: data, encoding: .utf8) {
+            handleRelayMessage(text)
+          } else {
+            receiveNext()
+          }
+        @unknown default:
+          receiveNext()
+        }
+      case .failure(let error):
+        finish(.failure(error))
+      }
+    }
+  }
+
+  private func handleRelayMessage(_ text: String) {
+    guard let relayOK = NIP01RelayOK(text: text), relayOK.eventId == event.id else {
+      // NOTICE, AUTH, and unrelated frames are not terminal publish responses.
+      receiveNext()
+      return
+    }
+
+    if relayOK.confirmsStoredEvent {
+      finish(.success(relayURL))
+    } else {
+      finish(.failure(NostrPublishError.relayRejected(relayURL, relayOK.message)))
+    }
+  }
+
+  private func finish(_ result: Result<URL, Error>) {
+    stateQueue.async { [weak self] in
+      guard let self, !didComplete else { return }
+
+      didComplete = true
+      timeoutWorkItem?.cancel()
+      webSocketTask?.cancel(with: .goingAway, reason: nil)
+      session?.invalidateAndCancel()
+      webSocketTask = nil
+      session = nil
+
+      DispatchQueue.main.async { [completion] in
+        completion(result)
+      }
+    }
+  }
 }
 
 class PostEventContent {
@@ -1687,93 +1990,33 @@ class PostEventContent {
   let timestamp: Date
   let draft: NostrWriteEventDraft
 
-  convenience init(keyPair: KeyPair, content: String, timestamp: Date = Date()) throws {
-    try self.init(keyPair: keyPair, draft: NIP01.textNote(content: content), timestamp: timestamp)
+  convenience init(privateKeyHex: String, content: String, timestamp: Date = Date()) throws {
+    try self.init(
+      privateKeyHex: privateKeyHex,
+      draft: NIP01.textNote(content: content),
+      timestamp: timestamp
+    )
   }
 
-  init(keyPair: KeyPair, draft: NostrWriteEventDraft, timestamp: Date = Date()) throws {
+  init(privateKeyHex: String, draft: NostrWriteEventDraft, timestamp: Date = Date()) throws {
     self.draft = draft
-    self.event = try Event(
-      keyPair: keyPair,
+    self.event = try NostrEventFactory.signedEvent(
+      privateKeyHex: privateKeyHex,
       kind: draft.kind,
       tags: draft.tags,
-      content: draft.content
+      content: draft.content,
+      createdAt: Timestamp(date: timestamp)
     )
     self.content = draft.content
     self.timestamp = timestamp
   }
 
   func sendToNostr(relayUrl: URL, completion: ((Result<URL, Error>) -> Void)? = nil) {
-    DispatchQueue.global(qos: .background).async {
-      do {
-        let message = ClientMessage.event(self.event)
-        let session = URLSession(configuration: .default)
-        let webSocketTask = session.webSocketTask(with: relayUrl)
-        let completionQueue = DispatchQueue(label: "nostr.publish.\(UUID().uuidString)")
-        var didComplete = false
-
-        func finish(_ result: Result<URL, Error>) {
-          completionQueue.async {
-            guard !didComplete else { return }
-
-            didComplete = true
-            webSocketTask.cancel(with: .goingAway, reason: nil)
-            session.invalidateAndCancel()
-
-            DispatchQueue.main.async {
-              completion?(result)
-            }
-          }
-        }
-
-        func receiveOK() {
-          webSocketTask.receive { result in
-            switch result {
-            case .success(let message):
-              switch message {
-              case .string(let text):
-                guard let relayOK = NIP01RelayOK(text: text), relayOK.eventId == self.event.id else {
-                  finish(.failure(NostrPublishError.unexpectedRelayResponse(relayUrl)))
-                  return
-                }
-
-                if relayOK.accepted {
-                  finish(.success(relayUrl))
-                } else {
-                  finish(.failure(NostrPublishError.relayRejected(relayUrl, relayOK.message)))
-                }
-              case .data:
-                finish(.failure(NostrPublishError.unexpectedRelayResponse(relayUrl)))
-              @unknown default:
-                finish(.failure(NostrPublishError.unexpectedRelayResponse(relayUrl)))
-              }
-            case .failure(let error):
-              finish(.failure(error))
-            }
-          }
-        }
-
-        webSocketTask.resume()
-
-        webSocketTask.send(.string(try message.string())) { error in
-          if let error = error {
-            print("Error: \(error)")
-            finish(.failure(error))
-            return
-          }
-
-          DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 8) {
-            finish(.failure(NostrPublishError.relayTimeout(relayUrl)))
-          }
-          receiveOK()
-        }
-      } catch {
-        print("Error: \(error)")
-        DispatchQueue.main.async {
-          completion?(.failure(error))
-        }
-      }
-    }
+    NostrEventPublishOperation(
+      event: event,
+      relayURL: relayUrl,
+      completion: { result in completion?(result) }
+    ).start()
   }
 
   func saveToSwiftData(modelContainer: ModelContainer) {

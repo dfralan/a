@@ -341,8 +341,8 @@ final class ThreadProtocolTests: XCTestCase {
   }
 
   private func signedEvent(from draft: NostrWriteEventDraft) throws -> Event {
-    let keyPair = try KeyPair(privateKey: String(repeating: "1", count: 64))
-    return try PostEventContent(keyPair: keyPair, draft: draft).event
+    let privateKeyHex = String(repeating: "1", count: 64)
+    return try PostEventContent(privateKeyHex: privateKeyHex, draft: draft).event
   }
 }
 

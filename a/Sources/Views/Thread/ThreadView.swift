@@ -277,14 +277,13 @@ struct ThreadView: View {
     guard let repository else { return }
 
     do {
-      let keyPair = try KeyPair(privateKey: privateKeyHex)
       let strategy = ThreadProtocolStrategies.strategy(for: controller.target)
       let draft = try strategy.makeReplyDraft(
         content: trimmedDraftText,
         target: controller.target,
         parseProfileMentions: true
       )
-      let event = try PostEventContent(keyPair: keyPair, draft: draft)
+      let event = try PostEventContent(privateKeyHex: privateKeyHex, draft: draft)
       let fallbackEvent: PostEventContent?
 
       if draft.nips.contains(.nip27) {
@@ -293,7 +292,7 @@ struct ThreadView: View {
           target: controller.target,
           parseProfileMentions: false
         )
-        fallbackEvent = try PostEventContent(keyPair: keyPair, draft: fallbackDraft)
+        fallbackEvent = try PostEventContent(privateKeyHex: privateKeyHex, draft: fallbackDraft)
       } else {
         fallbackEvent = nil
       }

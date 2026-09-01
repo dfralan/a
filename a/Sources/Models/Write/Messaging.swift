@@ -258,12 +258,12 @@ struct NIP17MessagingCryptoProvider: MessagingCryptoProvider {
         publicKeyHex: recipientPublicKey
       )
       let sealedRumor = try NIP44.encrypt(rumorJSON, conversationKey: conversationKey)
-      let seal = try NIP17EventFactory.signedEvent(
+      let seal = try NostrEventFactory.signedEvent(
         privateKeyHex: senderPrivateKeyHex,
         kind: .custom(13),
         tags: [],
         content: sealedRumor,
-        createdAt: NIP17EventFactory.randomPastTimestamp()
+        createdAt: NostrEventFactory.randomPastTimestamp()
       )
       let sealJSON = try seal.jsonString()
 
@@ -282,12 +282,12 @@ struct NIP17MessagingCryptoProvider: MessagingCryptoProvider {
         publicKeyHex: recipientPublicKey
       )
       let wrappedSeal = try NIP44.encrypt(sealJSON, conversationKey: wrapperConversationKey)
-      let giftWrap = try NIP17EventFactory.signedEvent(
+      let giftWrap = try NostrEventFactory.signedEvent(
         privateKeyHex: wrapperPrivateKeyHex,
         kind: .custom(1059),
         tags: [.pubKey(publicKey: recipientPublicKey)],
         content: wrappedSeal,
-        createdAt: NIP17EventFactory.randomPastTimestamp()
+        createdAt: NostrEventFactory.randomPastTimestamp()
       )
 
       return MessagingEncryptedEnvelope(
@@ -306,7 +306,7 @@ struct NIP17MessagingCryptoProvider: MessagingCryptoProvider {
     guard envelope.event.kind == .custom(1059) else {
       throw MessagingError.decryptionUnavailable(protocolKind: envelope.protocolKind)
     }
-    try NIP17EventFactory.validateEventSignature(envelope.event)
+    try NostrEventFactory.validateEventSignature(envelope.event)
 
     let recipientKeyPair: KeyPair
     do {
@@ -334,7 +334,7 @@ struct NIP17MessagingCryptoProvider: MessagingCryptoProvider {
     else {
       throw MessagingError.decryptionUnavailable(protocolKind: envelope.protocolKind)
     }
-    try NIP17EventFactory.validateEventSignature(seal)
+    try NostrEventFactory.validateEventSignature(seal)
 
     let sealConversationKey = try NIP44.conversationKey(
       privateKeyHex: recipientPrivateKeyHex,
@@ -766,7 +766,7 @@ struct NIP17MessagingRelayResolver: MessagingRelayResolver {
           completed += 1
 
           if case .success(let event?) = result {
-            if (try? NIP17EventFactory.validateEventSignature(event)) != nil {
+            if (try? NostrEventFactory.validateEventSignature(event)) != nil {
               relayListEvents.append(event)
             }
           }
@@ -1341,7 +1341,7 @@ final class MessagingService {
 
     do {
       let tags = relayURLs.map { EventTag(id: "relay", otherInformation: $0.absoluteString) }
-      let event = try NIP17EventFactory.signedEvent(
+      let event = try NostrEventFactory.signedEvent(
         privateKeyHex: privateKeyHex,
         kind: .custom(10050),
         tags: tags,
@@ -1442,14 +1442,6 @@ final class MessagingService {
   }
 }
 
-private enum NostrCanonicalJSON {
-  static func encode<T: Encodable>(_ value: T) throws -> Data {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.withoutEscapingSlashes]
-    return try encoder.encode(value)
-  }
-}
-
 private struct NIP17Rumor: Codable {
   let id: String
   let publicKey: String
@@ -1478,7 +1470,7 @@ private struct NIP17Rumor: Codable {
     let tags = message.conversation.participants
       .filter { $0 != authorPublicKey }
       .map { EventTag.pubKey(publicKey: $0) }
-    let serializable = NIP17SerializableEvent(
+    let serializable = NostrSerializableEvent(
       publicKey: authorPublicKey,
       createdAt: createdAt,
       kind: .custom(14),
@@ -1499,7 +1491,7 @@ private struct NIP17Rumor: Codable {
   }
 
   func computedID() throws -> String {
-    let serializable = NIP17SerializableEvent(
+    let serializable = NostrSerializableEvent(
       publicKey: publicKey,
       createdAt: createdAt,
       kind: kind,
@@ -1517,121 +1509,6 @@ private struct NIP17Rumor: Codable {
     }
 
     return json
-  }
-}
-
-private struct NIP17SerializableEvent: Encodable {
-  let id = 0
-  let publicKey: String
-  let createdAt: Timestamp
-  let kind: EventKind
-  let tags: [EventTag]
-  let content: String
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.unkeyedContainer()
-    try container.encode(id)
-    try container.encode(publicKey)
-    try container.encode(createdAt)
-    try container.encode(kind)
-    try container.encode(tags)
-    try container.encode(content)
-  }
-}
-
-private struct NIP17SignedEvent: Codable {
-  let id: String
-  let publicKey: String
-  let createdAt: Timestamp
-  let kind: EventKind
-  let tags: [EventTag]
-  let content: String
-  let signature: String
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case publicKey = "pubkey"
-    case createdAt = "created_at"
-    case kind
-    case tags
-    case content
-    case signature = "sig"
-  }
-}
-
-private enum NIP17EventFactory {
-  private static let maxTimestampJitter = 60 * 60 * 24 * 2
-
-  static func randomPastTimestamp() -> Timestamp {
-    let jitter = Int.random(in: 0...maxTimestampJitter)
-    return Timestamp(date: Date().addingTimeInterval(-Double(jitter)))
-  }
-
-  static func signedEvent(
-    privateKeyHex: String,
-    kind: EventKind,
-    tags: [EventTag],
-    content: String,
-    createdAt: Timestamp
-  ) throws -> Event {
-    let privateKeyData = try Data(nostrHex: privateKeyHex)
-    let privateKey = try secp256k1.Signing.PrivateKey(rawRepresentation: privateKeyData)
-    let publicKey = Data(privateKey.publicKey.xonly.bytes).nostrHex
-    let serializableEvent = NIP17SerializableEvent(
-      publicKey: publicKey,
-      createdAt: createdAt,
-      kind: kind,
-      tags: tags,
-      content: content
-    )
-    let serializedEvent = try NostrCanonicalJSON.encode(serializableEvent)
-    let eventID = Data(CryptoKit.SHA256.hash(data: serializedEvent)).nostrHex
-    let signature = try privateKey.schnorr.signature(for: serializedEvent)
-
-    guard privateKey.publicKey.schnorr.isValidSignature(signature, for: serializedEvent) else {
-      throw MessagingError.encryptionFailed
-    }
-
-    let signedEvent = NIP17SignedEvent(
-      id: eventID,
-      publicKey: publicKey,
-      createdAt: createdAt,
-      kind: kind,
-      tags: tags,
-      content: content,
-      signature: signature.rawRepresentation.nostrHex
-    )
-    let signedEventJSON = try NostrCanonicalJSON.encode(signedEvent)
-    return try JSONDecoder().decode(Event.self, from: signedEventJSON)
-  }
-
-  static func validateEventSignature(_ event: Event) throws {
-    let serializableEvent = NIP17SerializableEvent(
-      publicKey: event.publicKey,
-      createdAt: event.createdAt,
-      kind: event.kind,
-      tags: event.tags,
-      content: event.content
-    )
-    let serializedEvent = try NostrCanonicalJSON.encode(serializableEvent)
-    let eventID = Data(CryptoKit.SHA256.hash(data: serializedEvent)).nostrHex
-    guard eventID == event.id else {
-      throw MessagingError.decryptionUnavailable(protocolKind: .nip17)
-    }
-
-    let publicKeyData = try Data(nostrHex: event.publicKey)
-    var compressedPublicKey = Data([0x02])
-    compressedPublicKey.append(publicKeyData)
-
-    let publicKey = try secp256k1.Signing.PublicKey(
-      rawRepresentation: compressedPublicKey,
-      format: .compressed
-    )
-    let signatureData = try Data(nostrHex: event.signature, expectedByteCount: 64)
-    let signature = try secp256k1.Signing.SchnorrSignature(rawRepresentation: signatureData)
-    guard publicKey.schnorr.isValidSignature(signature, for: serializedEvent) else {
-      throw MessagingError.decryptionUnavailable(protocolKind: .nip17)
-    }
   }
 }
 
@@ -2012,7 +1889,7 @@ private struct NostrRelayAuth {
   let event: Event
 
   init(challenge: String, relayURL: URL, privateKeyHex: String) throws {
-    event = try NIP17EventFactory.signedEvent(
+    event = try NostrEventFactory.signedEvent(
       privateKeyHex: privateKeyHex,
       kind: .custom(22242),
       tags: [
